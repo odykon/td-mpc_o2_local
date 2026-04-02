@@ -24,9 +24,9 @@ Dependencies
 """
 
 import torch
-from tdmpc import helper as h
-from lml import LML
 
+import algorithm.helper as h
+from lml import LML
 
 def DCEMethod(self, obs, update_mode=False, step=None, t0=True,
               seed=None, sample_final_action=False, lml_temperature=10):

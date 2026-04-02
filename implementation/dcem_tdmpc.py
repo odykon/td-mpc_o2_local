@@ -19,11 +19,10 @@ import types
 import torch
 from copy import deepcopy
 
-from tdmpc.tdmpc import TDMPC
-from dcem.action_decoder import build_action_decoder, decode_sequence
-from dcem.planning import DCEMethod, CEM_in_latent
-from dcem.training import action_decoder_DDPG_update
-
+from algorithm.tdmpc import TDMPC, TOLD
+from implementation.action_decoder import build_action_decoder, decode_sequence
+from implementation.planning import DCEMethod, CEM_in_latent
+from implementation.training import action_decoder_DDPG_update
 
 class DCEM_TDMPC(TDMPC):
     def __init__(self, cfg):

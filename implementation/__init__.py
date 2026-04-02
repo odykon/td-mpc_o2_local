@@ -12,6 +12,6 @@ All other symbols can be imported directly from their modules if needed:
     from dcem.training       import action_decoder_DDPG_update
 """
 
-from dcem.dcem_tdmpc import DCEM_TDMPC
+from .dcem_tdmpc import DCEM_TDMPC
 
 __all__ = ["DCEM_TDMPC"]
