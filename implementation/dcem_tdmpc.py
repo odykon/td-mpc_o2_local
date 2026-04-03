@@ -20,7 +20,7 @@ import torch
 from copy import deepcopy
 
 from algorithm.tdmpc import TDMPC, TOLD
-from implementation.action_decoder import build_action_decoder, decode_sequence
+from implementation.action_decoder import build_action_decoder, decode_sequence,track_TOLD_grad
 from implementation.planning import DCEMethod, CEM_in_latent
 from implementation.training import action_decoder_DDPG_update
 
@@ -47,6 +47,8 @@ class DCEM_TDMPC(TDMPC):
         # Attach decode_sequence to model and model_target
         self.model.decode_sequence        = types.MethodType(decode_sequence, self.model)
         self.model_target.decode_sequence = types.MethodType(decode_sequence, self.model_target)
+        self.model.track_TOLD_grad        = types.MethodType(track_TOLD_grad, self.model)
+        self.model_target.track_TOLD_grad = types.MethodType(track_TOLD_grad, self.model_target)
 
     def DCEMethod(self, *args, **kwargs):
         return DCEMethod(self, *args, **kwargs)

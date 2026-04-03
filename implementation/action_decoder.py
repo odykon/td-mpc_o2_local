@@ -12,7 +12,7 @@ Provides:
 
 import torch
 import torch.nn as nn
-
+import algorithm.helper as h
 
 def build_action_decoder(cfg, initialize=False, use_latent_state=True):
     """
@@ -126,3 +126,8 @@ def decode_sequence(self, u, z):
 
     actions = self._action_decoder(dec_input)
     return actions.view(B, self.cfg.horizon, self.cfg.action_dim).permute(1, 0, 2)
+
+def track_TOLD_grad(self, enable=True):
+    """Enables/disables gradient tracking of all TOLD components."""
+    for m in [self._Q1, self._Q2, self._reward, self._dynamics, self._encoder]:
+        h.set_requires_grad(m, enable)
