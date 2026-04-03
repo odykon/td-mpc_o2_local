@@ -55,7 +55,7 @@ def action_decoder_DDPG_update(self, obs, u_mean, horizon):
     z = self.model.h(obs).detach()
 
     sequence = self.model.decode_sequence(u_mean, z)
-    value    = self.estimate_value(z, sequence, horizon).nan_to_num(0)
+    value    = self.estimate_value_with_grad(z, sequence, horizon).nan_to_num(0)
     cost     = -value.mean()
 
     cost.backward()

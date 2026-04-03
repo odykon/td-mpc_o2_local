@@ -95,7 +95,7 @@ def DCEMethod(self, obs, update_mode=False, step=None, t0=True,
             u_samples_flat = u_samples.view(B * self.cfg.num_samples, self.cfg.latent_action_dim)
 
             sequence = self.model.decode_sequence(u_samples_flat, z)
-            value    = self.estimate_value(z, sequence, horizon).view(B, self.cfg.num_samples)
+            value    = self.estimate_value_with_grad(z, sequence, horizon).view(B, self.cfg.num_samples)
 
             # LML soft top-k elite selection
             scores = LML(N=self.cfg.num_elites, verbose=0, eps=1e-4)(value * lml_temperature)
