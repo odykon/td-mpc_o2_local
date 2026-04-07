@@ -22,7 +22,7 @@ from copy import deepcopy
 from algorithm.tdmpc import TDMPC, TOLD
 from implementation.action_decoder import build_action_decoder, decode_sequence, track_TOLD_grad, track_O2_grad,build_value_network
 from implementation.planning import DCEMethod, CEM_in_latent
-from implementation.training import action_decoder_DDPG_update
+from implementation.training import action_decoder_DDPG_update, PG_withV, action_entropy_loss, V_net_update
 
 class TDMPC_O2(TDMPC):
     def __init__(self, cfg):
@@ -76,3 +76,12 @@ class TDMPC_O2(TDMPC):
 
     def action_decoder_DDPG_update(self, *args, **kwargs):
         return action_decoder_DDPG_update(self, *args, **kwargs)
+        
+    def PG_withV(self, *args, **kwargs):
+        return PG_withV(self, *args, **kwargs)
+    
+    def action_entropy_loss(self, *args, **kwargs):
+        return action_entropy_loss(self, *args, **kwargs)
+    
+    def V_net_update(self, *args, **kwargs):
+        return V_net_update(self, *args, **kwargs)
