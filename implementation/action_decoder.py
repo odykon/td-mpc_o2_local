@@ -52,6 +52,24 @@ def build_action_decoder(cfg, initialize=False, use_latent_state=True):
 
     return action_decoder
 
+def build_value_network(latent_dim, mlp_dim):
+    """Build value network with zero-initialized output layer."""
+    V_net = nn.Sequential(
+        nn.Linear(latent_dim, mlp_dim),
+        nn.LayerNorm(mlp_dim),
+        nn.Tanh(),
+        nn.Linear(mlp_dim, mlp_dim),
+        nn.ELU(),
+        nn.Linear(mlp_dim, 1)
+    )
+    
+    # Zero-initialize last layer
+    nn.init.zeros_(V_net[-1].weight)
+    nn.init.zeros_(V_net[-1].bias)
+    
+    return V_net
+
+
 
 def initialize_per_horizon_identity(decoder, d_u, d_z, d_a, H):
     """

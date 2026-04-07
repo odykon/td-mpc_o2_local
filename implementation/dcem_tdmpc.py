@@ -20,7 +20,7 @@ import torch
 from copy import deepcopy
 
 from algorithm.tdmpc import TDMPC, TOLD
-from implementation.action_decoder import build_action_decoder, decode_sequence,track_TOLD_grad
+from implementation.action_decoder import build_action_decoder, decode_sequence,track_TOLD_grad, build_value_network
 from implementation.planning import DCEMethod, CEM_in_latent
 from implementation.training import action_decoder_DDPG_update
 
@@ -35,6 +35,7 @@ class DCEM_TDMPC(TDMPC):
             use_latent_state=cfg.use_latent_state,
         ).to(self.device)
 
+
         self.model._action_decoder        = decoder
         self.model_target._action_decoder = deepcopy(decoder).to(self.device)
 
@@ -43,6 +44,11 @@ class DCEM_TDMPC(TDMPC):
             self.model._action_decoder.parameters(),
             lr=cfg.lr,
         )
+
+        #attach value network to model and model_target
+        self.model._V        = build_value_network(cfg.latent_dim, cfg.mlp_dim).to(self.device)
+        self.model_target._V = deepcopy(self.model._V).to(self.device)
+        self.V_optim = torch.optim.Adam(self.model._V.parameters(), lr=cfg.lr)
 
         # Attach decode_sequence to model and model_target
         self.model.decode_sequence        = types.MethodType(decode_sequence, self.model)
