@@ -151,5 +151,5 @@ def track_TOLD_grad(self, enable=True):
         h.set_requires_grad(m, enable)
 
 def track_O2_grad(self, enable=True):
-    for m in [self.model._action_decoder, self.model._V]:
+    for m in [self._action_decoder, self._V]:
         h.set_requires_grad(m, enable)
