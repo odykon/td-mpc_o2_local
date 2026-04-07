@@ -142,7 +142,7 @@ def decode_sequence(self, u, z):
     else:
         dec_input = u
 
-    actions = self._action_decodßer(dec_input)
+    actions = self._action_decoder(dec_input)
     return actions.view(B, self.cfg.horizon, self.cfg.action_dim).permute(1, 0, 2)
 
 def track_TOLD_grad(self, enable=True):
