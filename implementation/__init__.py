@@ -1,10 +1,10 @@
 """
-dcem
+ο2
 ----
-DCEM latent action space extension for TD-MPC.
+TDMPC_O2 latent action space extension for TD-MPC.
 
 Public API:
-    build_agent  — constructs a TDMPC agent with all DCEM components attached.
+    build_agent  — constructs a TDMPC agent with all Ο2 components attached.
 
 All other symbols can be imported directly from their modules if needed:
     from dcem.action_decoder import build_action_decoder, decode_sequence
@@ -12,6 +12,6 @@ All other symbols can be imported directly from their modules if needed:
     from dcem.training       import action_decoder_DDPG_update
 """
 
-from .dcem_tdmpc import DCEM_TDMPC
+from .tdmpc_o2 import TDMPC_O2
 
-__all__ = ["DCEM_TDMPC"]
+__all__ = ["TDMPC_O2"]

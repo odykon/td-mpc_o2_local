@@ -142,10 +142,14 @@ def decode_sequence(self, u, z):
     else:
         dec_input = u
 
-    actions = self._action_decoder(dec_input)
+    actions = self._action_decodßer(dec_input)
     return actions.view(B, self.cfg.horizon, self.cfg.action_dim).permute(1, 0, 2)
 
 def track_TOLD_grad(self, enable=True):
     """Enables/disables gradient tracking of all TOLD components."""
     for m in [self._Q1, self._Q2, self._reward, self._dynamics, self._encoder]:
+        h.set_requires_grad(m, enable)
+
+def track_O2_grad(self, enable=True):
+    for m in [self.model._action_decoder, self.model._V]:
         h.set_requires_grad(m, enable)

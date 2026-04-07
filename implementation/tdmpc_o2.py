@@ -1,7 +1,7 @@
 """
-dcem_tdmpc.py
+tdmpc_o2.py
 -------------
-DCEM_TDMPC: subclass of TDMPC that adds the latent action space extension.
+TDMPC_O2: subclass of TDMPC that adds the DCEM latent action space extension.
 
 Inherits all TD-MPC functionality (update, plan, save, load, etc.) unchanged.
 Adds in __init__:

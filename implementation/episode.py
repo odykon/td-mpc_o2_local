@@ -15,7 +15,7 @@ import torch
 
 # Import the original Episode from wherever it lives in your repo.
 # Adjust the path if your project lays it out differently.
-from tdmpc.episode import Episode   # ← original TDMPC Episode
+from algorithm.helper import Episode   # ← original TDMPC Episode
 
 
 class PGEpisode(Episode):
