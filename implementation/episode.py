@@ -69,8 +69,8 @@ class PGEpisode(Episode):
 
     def finalize(self):
         """Finalize the base episode, then stack on-policy tensors."""
-        super().finalize()
 
+        
         if len(self.old_log_probs) > 0:
             self.old_log_probs  = torch.stack(self.old_log_probs)
             self.u_mean         = torch.stack(self.u_mean)
@@ -131,6 +131,7 @@ class PGEpisode(Episode):
 
         if batch_size is None:
             batch_size = episode_length
+
 
         for start in range(0, episode_length, batch_size):
             idx = indices[start: start + batch_size]
