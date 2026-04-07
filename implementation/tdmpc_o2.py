@@ -76,7 +76,6 @@ class TDMPC_O2(TDMPC):
 
     def action_decoder_DDPG_update(self, *args, **kwargs):
         return action_decoder_DDPG_update(self, *args, **kwargs)
-        
     def PG_withV(self, *args, **kwargs):
         return PG_withV(self, *args, **kwargs)
     
