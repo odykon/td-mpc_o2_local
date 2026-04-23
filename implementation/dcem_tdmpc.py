@@ -24,6 +24,7 @@ from implementation.action_decoder import build_action_decoder, decode_sequence,
 from implementation.planning import DCEMethod, CEM_in_latent
 from implementation.training import action_decoder_DDPG_update
 
+
 class TDMPC_O2(TDMPC):
     def __init__(self, cfg):
         super().__init__(cfg)

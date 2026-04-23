@@ -15,13 +15,10 @@ import time
 
 import torch
 import pandas as pd
-from copy import deepcopy
 
-import helper as h
-
-# Adjust these imports to match your project's actual module paths
-import lml as l
-from implementation.episode import PGEpisode   # ← subclass, not a replacement
+from algorithm.helper import linear_schedule, set_seed, set_requires_grad
+import implementation.logging as l
+from implementation.episode import PGEpisode
 
 
 # ---------------------------------------------------------------------------
@@ -49,10 +46,10 @@ def update_decoder_pg(agent, episode: PGEpisode, step: int) -> dict:
     """
     agent.model.track_TOLD_grad(False)
     for m in [agent.model._action_decoder, agent.model._V]:
-        h.set_requires_grad(m, True)
+        set_requires_grad(m, True)
 
-    alpha_v   = h.linear_schedule(agent.cfg.variance_schedule, step)
-    horizon   = int(h.linear_schedule(agent.cfg.horizon_schedule, step))
+    alpha_v   = linear_schedule(agent.cfg.variance_schedule, step)
+    horizon   = int(linear_schedule(agent.cfg.horizon_schedule, step))
     accum: dict[str, list] = {}
 
     for batch in episode.sample_batches(batch_size=128, shuffle=True):
@@ -74,7 +71,7 @@ def update_decoder_pg(agent, episode: PGEpisode, step: int) -> dict:
             accum.setdefault(k, []).append(v)
 
     for m in [agent.model._action_decoder, agent.model._V]:
-        h.set_requires_grad(m, False)
+        set_requires_grad(m, False)
     agent.model.track_TOLD_grad(True)
 
     return {k: torch.stack(v).mean().item() for k, v in accum.items()}
@@ -99,7 +96,7 @@ def train_pg(cfg, agent, buffer, env, save_dir=None):
         env:      Gym-compatible environment
         save_dir: (optional) path for results; auto-created if None
     """
-    h.set_seed(42)
+    set_seed(42)
     episode_idx  = 0
     start_time   = time.time()
 
@@ -148,13 +145,15 @@ def train_pg(cfg, agent, buffer, env, save_dir=None):
 
             episode += (obs, action, reward, done)
 
+        episode.finalize()
+
         # ---- Episode summary -----------------------------------------------
         episode_metrics = {
             "Episode_no":       int(step / cfg.episode_length),
             "Reward":           episode.cumulative_reward,
             "Half_time_reward": half_time_reward,
-            "Horizon":          int(h.linear_schedule(cfg.horizon_schedule, step)),
-            "Std":              h.linear_schedule(cfg.std_schedule, step),
+            "Horizon":          int(linear_schedule(cfg.horizon_schedule, step)),
+            "Std":              linear_schedule(cfg.std_schedule, step),
         }
         print("\n  Episode Summary")
         print("-" * 25)
