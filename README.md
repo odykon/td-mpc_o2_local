@@ -4,8 +4,6 @@ This repository contains the implementation for my Master's thesis at the Nation
 
 Thesis: [Latent Space Planning with Model-Based Reinforcement Learning](http://artemis.cslab.ece.ntua.gr:8080/jspui/handle/123456789/20101)
 
-PyTorch implementation: [github.com/odykon/td-mpc_o2](https://github.com/odykon/td-mpc_o2)
-
 ---
 
 ## Motivation
