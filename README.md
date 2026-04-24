@@ -1,4 +1,4 @@
-# TD-MPC O2
+# TD-MPC with Optimized Optimization
 
 This repository contains the implementation for my Master's thesis at the National Technical University of Athens, which extends the [TD-MPC](https://nicklashansen.github.io/td-mpc/) framework (Hansen et al., 2022) with a learned latent action space for model-based reinforcement learning in continuous control tasks.
 
