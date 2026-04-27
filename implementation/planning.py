@@ -186,7 +186,7 @@ def CEM_in_latent(self, obs, update_mode=False, step=None, t0=True,
         latent_action = dist.rsample() if sample_final_action else u_mean
         latent_action = latent_action.unsqueeze(0)
 
-        log_probs = dist.log_prob(latent_action).squeeze_(0).sum(dim=0)
+        log_probs = dist.log_prob(latent_action).squeeze_(0).mean(dim=0)
         sequence  = self.model.decode_sequence(latent_action, z_0)
         action    = sequence[0, :].squeeze_(0)
 
