@@ -184,4 +184,4 @@ def action_entropy_loss(self, u_mean, u_std, z_state, num_samples=20, horizon=5)
     entropy_flat   = mvn.entropy()              # [B*T]
     entropy        = entropy_flat.view(B, T)    # [B, horizon]
 
-    return entropy.mean(dim=1).mean()           # scalar
+    return entropy.mean(dim=1)           # [B ]
