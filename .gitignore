@@ -1,2 +1,4 @@
 __pycache__/
 *.pyc
+train_o2.py
+training.py

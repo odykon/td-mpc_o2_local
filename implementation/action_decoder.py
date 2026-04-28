@@ -145,6 +145,34 @@ def decode_sequence(self, u, z):
     actions = self._action_decoder(dec_input)
     return actions.view(B, self.cfg.horizon, self.cfg.action_dim).permute(1, 0, 2)
 
+def decode_sequence_pretanh(self, u, z):
+    """
+    Same as decode_sequence but also returns the pre-Tanh values.
+    Returns:
+        actions:   [horizon, B, action_dim]  post-Tanh
+        pretanh:   [horizon, B, action_dim]  pre-Tanh
+    """
+    B = u.size(0)
+    in_dim = self._action_decoder[0].in_features
+
+    if in_dim == self.cfg.latent_action_dim + self.cfg.latent_dim:
+        dec_input = torch.cat([u, z], dim=-1)
+    else:
+        dec_input = u
+
+    # forward through all layers except final Tanh
+    x = dec_input
+    for layer in self._action_decoder[:-1]:
+        x = layer(x)
+
+    # x is pre-Tanh
+    actions = torch.tanh(x)
+
+    actions = actions.view(B, self.cfg.horizon, self.cfg.action_dim).permute(1, 0, 2)
+    pretanh = x.view(B, self.cfg.horizon, self.cfg.action_dim).permute(1, 0, 2)
+
+    return actions, pretanh
+    
 def track_TOLD_grad(self, enable=True):
     """Enables/disables gradient tracking of all TOLD components."""
     for m in [self._Q1, self._Q2, self._reward, self._dynamics, self._encoder]:

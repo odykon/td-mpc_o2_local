@@ -20,7 +20,7 @@ import torch
 from copy import deepcopy
 
 from algorithm.tdmpc import TDMPC, TOLD
-from implementation.action_decoder import build_action_decoder, decode_sequence, track_TOLD_grad, track_O2_grad,build_value_network
+from implementation.action_decoder import build_action_decoder, decode_sequence, decode_sequence_pretanh, track_TOLD_grad, track_O2_grad,build_value_network
 from implementation.planning import DCEMethod, CEM_in_latent
 from implementation.training import action_decoder_DDPG_update, PG_withV, action_entropy_loss, V_net_update
 
@@ -53,6 +53,12 @@ class TDMPC_O2(TDMPC):
         # Attach decode_sequence to model and model_target
         self.model.decode_sequence        = types.MethodType(decode_sequence, self.model)
         self.model_target.decode_sequence = types.MethodType(decode_sequence, self.model_target)
+        self.model.decode_sequence_pretanh = types.MethodType(
+                decode_sequence_pretanh, self.model
+            )
+        self.model_target.decode_sequence_pretanh = types.MethodType(
+                decode_sequence_pretanh, self.model_target
+            )
         self.model.track_TOLD_grad        = types.MethodType(track_TOLD_grad, self.model)
         self.model_target.track_TOLD_grad = types.MethodType(track_TOLD_grad, self.model_target)
         self.model.track_O2_grad          = types.MethodType(track_O2_grad, self.model)
