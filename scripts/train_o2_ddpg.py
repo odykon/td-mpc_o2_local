@@ -1,22 +1,27 @@
 """
-TD-MPC training script.
-Trains a standard TD-MPC agent on a DMControl task using CEM planning
-and the standard TOLD model update.
+TD-MPC O2 training script — DDPG decoder update.
+
+Training proceeds in two phases:
+  Phase 1 (step < decoder_start_steps):
+      - Planning with standard CEM (agent.plan)
+      - Only TOLD world model is updated
+
+  Phase 2 (step >= decoder_start_steps):
+      - Planning switches to CEM in latent space (agent.CEM_in_latent)
+      - TOLD updated first (TOLD grad on, decoder grad off)
+      - Decoder updated after (decoder grad on, TOLD grad off)
 
 Usage (from repo root):
-    python scripts/train_tdmpc.py task=walker-walk seed=1
-    python scripts/train_tdmpc.py task=cheetah-run exp_name=myrun eval_freq=10000
+    python scripts/train_o2_ddpg.py task=walker-walk seed=1
+    python scripts/train_o2_ddpg.py cfg=my_cfg.yaml
 
 Kaggle setup:
     !git clone <your-repo-url>
     %cd <repo-name>
     !pip install dm-control omegaconf
-    !python scripts/train_tdmpc.py task=walker-walk
+    !python scripts/train_o2_ddpg.py task=walker-walk
 
-Logs are saved to logs/<task>/<modality>/<exp_name>/<seed>/
-  - train.csv : per-episode training metrics
-  - eval.csv  : periodic evaluation rewards
-  - config.yaml: the full config used for this run
+Logs saved to logs/<task>/<modality>/<exp_name>/<seed>/
 """
 
 import warnings
@@ -40,14 +45,25 @@ import csv
 from omegaconf import OmegaConf
 from cfg import parse_cfg
 from env import make_env
-from algorithm.tdmpc import TDMPC
 from algorithm.helper import Episode, ReplayBuffer, linear_schedule
-from o2.training_utils import update_tdmpc
+from o2.tdmpc_o2 import TDMPC_O2
+from o2.training_utils import update_tdmpc, update_decoder
 
 torch.backends.cudnn.benchmark = True
 
 CFG_PATH = REPO_ROOT / 'tdmpc' / 'cfgs'
-LOG_ROOT = REPO_ROOT / 'logs'
+LOG_ROOT  = REPO_ROOT / 'logs'
+
+O2_DEFAULTS = {
+    'latent_action_dim':    128,
+    'decoder_init':         True,
+    'use_latent_state':     True,
+    'dcem_batch_size':      64,
+    'decoder_updates':      50,
+    'told_updates':         500,
+    'decoder_start_steps':  5000,
+    'exp_name':             'o2_ddpg',
+}
 
 
 def set_seed(seed: int):
@@ -59,12 +75,12 @@ def set_seed(seed: int):
 
 @torch.no_grad()
 def evaluate(env, agent, num_episodes: int, step: int) -> float:
-    """Run agent in eval mode and return mean episode reward."""
+    """Run agent in eval mode using CEM in latent space."""
     rewards = []
     for _ in range(num_episodes):
         obs, done, total, t = env.reset(), False, 0.0, 0
         while not done:
-            action = agent.plan(obs, eval_mode=True, step=step, t0=(t == 0))
+            action, *_ = agent.CEM_in_latent(obs, step=step, t0=(t == 0))
             obs, reward, done, _ = env.step(action.cpu().numpy())
             total += reward
             t += 1
@@ -77,7 +93,8 @@ class CSVLogger:
 
     TRAIN_FIELDS = [
         'episode', 'step', 'env_step', 'total_time', 'episode_reward',
-        'horizon', 'std', 'ep_time', 'update_time',
+        'horizon', 'std', 'ep_time', 'update_time', 'decoder_time',
+        'decoder_loss', 'phase',
         'consistency_loss', 'reward_loss', 'value_loss',
         'pi_loss', 'total_loss', 'weighted_loss', 'grad_norm',
     ]
@@ -85,13 +102,12 @@ class CSVLogger:
 
     def __init__(self, log_dir: Path, cfg):
         log_dir.mkdir(parents=True, exist_ok=True)
-        self.log_dir = log_dir
         OmegaConf.save(cfg, log_dir / 'config.yaml')
 
         self._train_f = open(log_dir / 'train.csv', 'w', newline='')
-        self._eval_f = open(log_dir / 'eval.csv', 'w', newline='')
+        self._eval_f  = open(log_dir / 'eval.csv',  'w', newline='')
         self._train_w = csv.DictWriter(self._train_f, fieldnames=self.TRAIN_FIELDS, extrasaction='ignore')
-        self._eval_w = csv.DictWriter(self._eval_f, fieldnames=self.EVAL_FIELDS, extrasaction='ignore')
+        self._eval_w  = csv.DictWriter(self._eval_f,  fieldnames=self.EVAL_FIELDS,  extrasaction='ignore')
         self._train_w.writeheader()
         self._eval_w.writeheader()
 
@@ -102,15 +118,19 @@ class CSVLogger:
         self._train_w.writerow(row)
         self._train_f.flush()
 
+        phase = d.get('phase', 'tdmpc')
         W = 38
         print('─' * W)
-        print(f'  Episode {d["episode"]}   step {d["env_step"]:,}')
+        print(f'  Episode {d["episode"]}   step {d["env_step"]:,}   [{phase}]')
         print('─' * W)
         print(f'  {"Reward":<16}: {d.get("episode_reward", 0):>8.1f}')
         print(f'  {"Horizon":<16}: {d.get("horizon", ""):>8}')
         print(f'  {"Std":<16}: {d.get("std", 0):>8.3f}')
         print(f'  {"Ep time":<16}: {d.get("ep_time", 0):>7.1f}s')
         print(f'  {"Update time":<16}: {d.get("update_time", 0):>7.1f}s')
+        if phase == 'o2':
+            print(f'  {"Decoder time":<16}: {d.get("decoder_time", 0):>7.1f}s')
+            print(f'  {"Decoder loss":<16}: {d.get("decoder_loss", 0):>8.4f}')
         print(f'  {"Total time":<16}: {d.get("total_time", 0):>7.0f}s')
         if d.get('total_loss', '') != '':
             print(f'  {"total_loss":<16}: {d["total_loss"]:>8.3f}')
@@ -135,38 +155,50 @@ class CSVLogger:
 
 
 def train(cfg):
-    """Main training loop for TD-MPC."""
+    """Main training loop for TD-MPC O2 with DDPG decoder update."""
     assert torch.cuda.is_available(), 'CUDA is required. Use a GPU runtime.'
     set_seed(cfg.seed)
 
     work_dir = LOG_ROOT / cfg.task / cfg.modality / cfg.exp_name / str(cfg.seed)
     logger = CSVLogger(work_dir, cfg)
 
-    env = make_env(cfg)
-    agent = TDMPC(cfg)
+    env    = make_env(cfg)
+    agent  = TDMPC_O2(cfg)
     buffer = ReplayBuffer(cfg)
 
     print('=' * 60)
     print(OmegaConf.to_yaml(cfg))
     print('=' * 60)
-    print(f'Task:        {cfg.task}')
-    print(f'Train steps: {cfg.train_steps * cfg.action_repeat:,}  (env steps)')
-    print(f'Obs shape:   {cfg.obs_shape}')
-    print(f'Action dim:  {cfg.action_dim}')
-    print(f'Seed:        {cfg.seed}')
-    print(f'Log dir:     {work_dir}')
+    print(f'Task:                {cfg.task}')
+    print(f'Train steps:         {cfg.train_steps * cfg.action_repeat:,}  (env steps)')
+    print(f'Obs shape:           {cfg.obs_shape}')
+    print(f'Action dim:          {cfg.action_dim}')
+    print(f'Latent action dim:   {cfg.latent_action_dim}')
+    print(f'Decoder start steps: {cfg.decoder_start_steps * cfg.action_repeat:,}  (env steps)')
+    print(f'Seed:                {cfg.seed}')
+    print(f'Log dir:             {work_dir}')
     print('=' * 60 + '\n')
 
     episode_idx = 0
-    start_time = time.time()
+    start_time  = time.time()
 
     for step in range(0, cfg.train_steps + cfg.episode_length, cfg.episode_length):
+        phase = 'o2' if step >= cfg.decoder_start_steps else 'tdmpc'
+
         # --- Collect one episode ---
         t_ep = time.time()
         obs = env.reset()
         episode = Episode(cfg, obs)
         while not episode.done:
-            action = agent.plan(obs, step=step, t0=episode.first)
+            if step < cfg.seed_steps:
+                action_np = env.action_space.sample()
+                action = torch.tensor(action_np, dtype=torch.float32, device=agent.device)
+            elif phase == 'tdmpc':
+                action = agent.plan(obs, step=step, t0=episode.first)
+            else:
+                action, *_ = agent.CEM_in_latent(
+                    obs, step=step, t0=episode.first, sample_final_action=True
+                )
             obs, reward, done, _ = env.step(action.cpu().numpy())
             episode += (obs, action, reward, done)
         assert len(episode) == cfg.episode_length
@@ -181,19 +213,30 @@ def train(cfg):
             train_metrics = update_tdmpc(agent, buffer, step)
             update_time = time.time() - t_update
 
+        # --- Update decoder (DDPG) ---
+        decoder_loss = 0.0
+        decoder_time = 0.0
+        if phase == 'o2':
+            t_dec = time.time()
+            decoder_loss = update_decoder(agent, buffer, cfg, step)
+            decoder_time = time.time() - t_dec
+
         # --- Log training episode ---
         episode_idx += 1
         env_step = int(step * cfg.action_repeat)
         logger.log_train({
-            'episode': episode_idx,
-            'step': step,
-            'env_step': env_step,
-            'total_time': time.time() - start_time,
+            'episode':        episode_idx,
+            'step':           step,
+            'env_step':       env_step,
+            'total_time':     time.time() - start_time,
             'episode_reward': episode.cumulative_reward,
-            'horizon': int(linear_schedule(cfg.horizon_schedule, step)),
-            'std': linear_schedule(cfg.std_schedule, step),
-            'ep_time': ep_time,
-            'update_time': update_time,
+            'horizon':        int(linear_schedule(cfg.horizon_schedule, step)),
+            'std':            linear_schedule(cfg.std_schedule, step),
+            'ep_time':        ep_time,
+            'update_time':    update_time,
+            'decoder_time':   decoder_time,
+            'decoder_loss':   decoder_loss,
+            'phase':          phase,
             **train_metrics,
         })
 
@@ -201,10 +244,10 @@ def train(cfg):
         if env_step % cfg.eval_freq == 0 and cfg.eval_episodes > 0:
             eval_reward = evaluate(env, agent, cfg.eval_episodes, step)
             logger.log_eval({
-                'episode': episode_idx,
-                'env_step': env_step,
+                'episode':        episode_idx,
+                'env_step':       env_step,
                 'episode_reward': eval_reward,
-                'total_time': time.time() - start_time,
+                'total_time':     time.time() - start_time,
             })
 
         # --- Save model checkpoint ---
@@ -222,16 +265,16 @@ def make_cfg(task: str, **overrides) -> OmegaConf:
     Build a config programmatically for use in notebooks.
 
     Example:
-        from scripts.train_tdmpc import make_cfg
-        cfg = make_cfg('walker-walk', seed=1, exp_name='my_run')
-        cfg.lr = 3e-4
+        from scripts.train_o2_ddpg import make_cfg
+        cfg = make_cfg('walker-walk', seed=1, decoder_start_steps=10000)
         OmegaConf.save(cfg, 'my_cfg.yaml')
-        # then: !python scripts/train_tdmpc.py cfg=my_cfg.yaml
+        # then: !python scripts/train_o2_ddpg.py cfg=my_cfg.yaml
     """
     old_argv = sys.argv
-    sys.argv = ['train_tdmpc', f'task={task}'] + [f'{k}={v}' for k, v in overrides.items()]
+    sys.argv = ['train_o2_ddpg', f'task={task}'] + [f'{k}={v}' for k, v in overrides.items()]
     try:
         cfg = parse_cfg(CFG_PATH)
+        cfg = OmegaConf.merge(OmegaConf.create(O2_DEFAULTS), cfg)
     finally:
         sys.argv = old_argv
     return cfg
@@ -244,14 +287,12 @@ def load_cfg() -> OmegaConf:
     Priority (lowest to highest):
       1. tdmpc/cfgs/default.yaml
       2. tdmpc/cfgs/tasks/<domain>.yaml
-      3. Custom YAML passed as cfg=<path>
-      4. Remaining CLI args (e.g. seed=1 exp_name=test)
-
-    Example:
-      python scripts/train_tdmpc.py cfg=my_cfg.yaml
-      python scripts/train_tdmpc.py cfg=my_cfg.yaml seed=42
+      3. O2_DEFAULTS
+      4. Custom YAML passed as cfg=<path>
+      5. Remaining CLI args
     """
     cfg = parse_cfg(CFG_PATH)
+    cfg = OmegaConf.merge(OmegaConf.create(O2_DEFAULTS), cfg)
     custom_path = cfg.get('cfg', None)
     if custom_path:
         custom = OmegaConf.load(custom_path)
