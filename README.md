@@ -71,25 +71,25 @@ Action entropy is included as a training objective alongside the main reward sig
 
 ```
 td-mpc_o2/
+├── scripts/                  # Runnable training entry points
+│   └── train_tdmpc.py        # Standard TD-MPC training (base agent, CEM planning)
+│
+├── o2/                       # Thesis contributions (O2 extension)
+│   ├── action_decoder.py     # Decoder and value network construction
+│   ├── planning.py           # DCEMethod (differentiable CEM) and CEM_in_latent
+│   ├── decoder_updates.py    # All decoder update strategies (DDPG, PG, PPO)
+│   ├── training_utils.py     # Shared loop utilities for training scripts
+│   ├── episode.py            # PGEpisode for on-policy data collection
+│   └── eval_utils.py         # Evaluation, metrics, video saving
+│
 ├── tdmpc/                    # Original TD-MPC implementation (Hansen et al., 2022)
 │   ├── src/
-│   │   ├── train.py          # Original training loop
 │   │   ├── algorithm/
 │   │   │   ├── tdmpc.py      # TOLD model + TDMPC agent
 │   │   │   └── helper.py     # Networks, losses, EMA utilities
 │   │   ├── env.py            # DMControl wrappers
 │   │   └── cfg.py            # OmegaConf config parser
 │   └── cfgs/                 # YAML hyperparameter configs
-│
-├── implementation/           # Thesis contributions (O2 extension)
-│   ├── tdmpc_o2.py           # TDMPC_O2 subclass — adds decoder and V-network
-│   ├── action_decoder.py     # Decoder and value network construction
-│   ├── planning.py           # CEM, CEM_in_latent, DCEMethod
-│   ├── training.py           # DDPG and PG decoder update functions
-│   ├── pg_training.py        # On-policy PG training functions
-│   ├── train_pg.py           # On-policy training loop
-│   ├── episode.py            # PGEpisode for on-policy data collection
-│   └── logging.py            # Evaluation, metrics, video saving
 │
 └── lml.py                    # LML soft top-k projection (Amos et al., 2019)
 ```
