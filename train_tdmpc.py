@@ -200,6 +200,50 @@ def train(cfg):
     print('\nTraining complete.')
 
 
-if __name__ == '__main__':
+def make_cfg(task: str, **overrides) -> OmegaConf:
+    """
+    Build a config programmatically for use in notebooks.
+
+    Example:
+        from train_tdmpc import make_cfg
+        cfg = make_cfg('walker-walk', seed=1, exp_name='my_run')
+        cfg.lr = 3e-4
+        OmegaConf.save(cfg, 'my_cfg.yaml')
+        # then: !python train_tdmpc.py cfg=my_cfg.yaml
+    """
+    old_argv = sys.argv
+    sys.argv = ['train_tdmpc', f'task={task}'] + [f'{k}={v}' for k, v in overrides.items()]
+    try:
+        cfg = parse_cfg(CFG_PATH)
+    finally:
+        sys.argv = old_argv
+    return cfg
+
+
+def load_cfg() -> OmegaConf:
+    """
+    Load config with optional custom YAML file.
+
+    Priority (lowest to highest):
+      1. tdmpc/cfgs/default.yaml
+      2. tdmpc/cfgs/tasks/<domain>.yaml
+      3. Custom YAML passed as cfg=<path>
+      4. Remaining CLI args (e.g. seed=1 exp_name=test)
+
+    Example:
+      python train_tdmpc.py cfg=my_cfg.yaml
+      python train_tdmpc.py cfg=my_cfg.yaml seed=42   # seed overrides cfg file
+    """
     cfg = parse_cfg(CFG_PATH)
+    custom_path = cfg.get('cfg', None)
+    if custom_path:
+        custom = OmegaConf.load(custom_path)
+        cli = OmegaConf.from_cli()
+        cli_overrides = OmegaConf.create({k: v for k, v in cli.items() if k != 'cfg'})
+        cfg = OmegaConf.merge(cfg, custom, cli_overrides)
+    return cfg
+
+
+if __name__ == '__main__':
+    cfg = load_cfg()
     train(cfg)
