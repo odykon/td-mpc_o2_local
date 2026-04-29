@@ -94,17 +94,6 @@ td-mpc_o2/
 └── lml.py                    # LML soft top-k projection (Amos et al., 2019)
 ```
 
----
-
-## Environments
-
-Evaluated on [DeepMind Control Suite](https://github.com/google-deepmind/dm_control) continuous control benchmarks under limited-data conditions:
-
-- **Locomotion**: quadruped-run/walk, walker-run/walk, cheetah-run, hopper-hop, dog-run/walk/trot, humanoid-run/walk/stand, fish-swim
-- **Manipulation**: reacher-easy/hard, finger-spin, finger-turn-hard, cup-catch
-- **Classic control**: cartpole-swingup, cartpole-swingup-sparse, acrobot-swingup
-
----
 
 ## Acknowledgements
 
@@ -118,12 +107,6 @@ Evaluated on [DeepMind Control Suite](https://github.com/google-deepmind/dm_cont
 **LML (Limited Multi-Label Projection)** — Amos et al., 2019
 > Differentiable soft top-k used inside DCEMethod for gradient-flowing elite selection.
 > Implementation from [LocusLab/lml](https://github.com/locuslab/lml).
-
-**DrQv2** — Denis Yarats et al., Facebook Research
-> Image augmentation (`RandomShiftsAug`) and DMControl wrappers adapted from [facebookresearch/drqv2](https://github.com/facebookresearch/drqv2).
-
-**TD-MPC2** — Nicklas Hansen et al., 2023
-> Successor to the original TD-MPC. [nicklashansen/tdmpc2](https://github.com/nicklashansen/tdmpc2)
 
 ---
 
