@@ -100,14 +100,24 @@ class CSVLogger:
         self._train_w.writerow(row)
         self._train_f.flush()
         r = d.get('episode_reward', 0)
-        print(f'[train] ep={d["episode"]:5d}  step={d["env_step"]:8,}  reward={r:8.1f}')
+        t = d.get('total_time', 0)
+        losses = ''
+        if d.get('total_loss', '') != '':
+            losses = (
+                f"  total_loss={d['total_loss']:.3f}"
+                f"  reward_loss={d['reward_loss']:.3f}"
+                f"  value_loss={d['value_loss']:.3f}"
+                f"  pi_loss={d['pi_loss']:.3f}"
+            )
+        print(f'[train] ep={d["episode"]:5d}  step={d["env_step"]:8,}  reward={r:7.1f}  time={t:6.0f}s{losses}')
 
     def log_eval(self, d: dict):
         row = {k: d.get(k, '') for k in self.EVAL_FIELDS}
         self._eval_w.writerow(row)
         self._eval_f.flush()
         r = d.get('episode_reward', 0)
-        print(f'[eval]  ep={d["episode"]:5d}  step={d["env_step"]:8,}  reward={r:8.1f}  <-- evaluation')
+        t = d.get('total_time', 0)
+        print(f'[eval]  ep={d["episode"]:5d}  step={d["env_step"]:8,}  reward={r:7.1f}  time={t:6.0f}s  <<<')
 
     def close(self):
         self._train_f.close()
@@ -126,11 +136,16 @@ def train(cfg):
     agent = TDMPC(cfg)
     buffer = ReplayBuffer(cfg)
 
-    print(f'\nTask:        {cfg.task}')
+    print('=' * 60)
+    print(OmegaConf.to_yaml(cfg))
+    print('=' * 60)
+    print(f'Task:        {cfg.task}')
     print(f'Train steps: {cfg.train_steps * cfg.action_repeat:,}  (env steps)')
     print(f'Obs shape:   {cfg.obs_shape}')
     print(f'Action dim:  {cfg.action_dim}')
-    print(f'Seed:        {cfg.seed}\n')
+    print(f'Seed:        {cfg.seed}')
+    print(f'Log dir:     {work_dir}')
+    print('=' * 60 + '\n')
 
     episode_idx = 0
     start_time = time.time()
