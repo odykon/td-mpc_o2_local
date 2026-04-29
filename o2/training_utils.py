@@ -79,8 +79,9 @@ def update_tdmpc(agent, buffer, step):
         agent.model.track_TOLD_grad(True)
 
     buffer.cfg.batch_size = agent.cfg.batch_size
+    num_updates = getattr(agent.cfg, 'told_updates', agent.cfg.episode_length)
     metrics = {}
-    for i in range(agent.cfg.told_updates):
+    for i in range(num_updates):
         update_metrics = agent.update(buffer, step + i)
         for k, v in update_metrics.items():
             metrics[k] = metrics.get(k, 0.0) + v
