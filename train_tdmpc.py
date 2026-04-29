@@ -76,6 +76,7 @@ class CSVLogger:
 
     TRAIN_FIELDS = [
         'episode', 'step', 'env_step', 'total_time', 'episode_reward',
+        'ep_time', 'update_time',
         'consistency_loss', 'reward_loss', 'value_loss',
         'pi_loss', 'total_loss', 'weighted_loss', 'grad_norm',
     ]
@@ -101,6 +102,8 @@ class CSVLogger:
         self._train_f.flush()
         r = d.get('episode_reward', 0)
         t = d.get('total_time', 0)
+        ep_time = d.get('ep_time', 0)
+        update_time = d.get('update_time', 0)
         losses = ''
         if d.get('total_loss', '') != '':
             losses = (
@@ -109,7 +112,8 @@ class CSVLogger:
                 f"  value_loss={d['value_loss']:.3f}"
                 f"  pi_loss={d['pi_loss']:.3f}"
             )
-        print(f'[train] ep={d["episode"]:5d}  step={d["env_step"]:8,}  reward={r:7.1f}  time={t:6.0f}s{losses}')
+        print(f'[train] ep={d["episode"]:5d}  step={d["env_step"]:8,}  reward={r:7.1f}'
+              f'  ep={ep_time:.1f}s  update={update_time:.1f}s  total={t:.0f}s{losses}')
 
     def log_eval(self, d: dict):
         row = {k: d.get(k, '') for k in self.EVAL_FIELDS}
@@ -152,6 +156,7 @@ def train(cfg):
 
     for step in range(0, cfg.train_steps + cfg.episode_length, cfg.episode_length):
         # --- Collect one episode ---
+        t_ep = time.time()
         obs = env.reset()
         episode = Episode(cfg, obs)
         while not episode.done:
@@ -160,13 +165,17 @@ def train(cfg):
             episode += (obs, action, reward, done)
         assert len(episode) == cfg.episode_length
         buffer += episode
+        ep_time = time.time() - t_ep
 
         # --- Update TOLD model ---
         train_metrics = {}
+        update_time = 0.0
         if step >= cfg.seed_steps:
+            t_update = time.time()
             num_updates = cfg.seed_steps if step == cfg.seed_steps else cfg.episode_length
             for i in range(num_updates):
                 train_metrics.update(agent.update(buffer, step + i))
+            update_time = time.time() - t_update
 
         # --- Log training episode ---
         episode_idx += 1
@@ -177,11 +186,13 @@ def train(cfg):
             'env_step': env_step,
             'total_time': time.time() - start_time,
             'episode_reward': episode.cumulative_reward,
+            'ep_time': ep_time,
+            'update_time': update_time,
             **train_metrics,
         })
 
         # --- Periodic evaluation ---
-        if env_step % cfg.eval_freq == 0:
+        if env_step % cfg.eval_freq == 0 and cfg.eval_episodes > 0:
             eval_reward = evaluate(env, agent, cfg.eval_episodes, step)
             logger.log_eval({
                 'episode': episode_idx,
