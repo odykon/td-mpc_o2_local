@@ -42,6 +42,7 @@ from cfg import parse_cfg
 from env import make_env
 from algorithm.tdmpc import TDMPC
 from algorithm.helper import Episode, ReplayBuffer
+from o2.training_utils import update_tdmpc
 
 torch.backends.cudnn.benchmark = True
 
@@ -172,9 +173,7 @@ def train(cfg):
         update_time = 0.0
         if step >= cfg.seed_steps:
             t_update = time.time()
-            num_updates = cfg.seed_steps if step == cfg.seed_steps else cfg.episode_length
-            for i in range(num_updates):
-                train_metrics.update(agent.update(buffer, step + i))
+            train_metrics = update_tdmpc(agent, buffer, step)
             update_time = time.time() - t_update
 
         # --- Log training episode ---
