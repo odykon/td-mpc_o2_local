@@ -99,8 +99,10 @@ def train(cfg):
 
     if cfg.get('load_model', None):
         d = torch.load(cfg.load_model)
-        agent.model.load_state_dict(d['model'], strict=False)
-        agent.model_target.load_state_dict(d['model_target'], strict=False)
+        state_dict = d['model'] if 'model' in d else d
+        agent.model.load_state_dict(state_dict, strict=False)
+        if 'model_target' in d:
+            agent.model_target.load_state_dict(d['model_target'], strict=False)
         print(f'Loaded model from {cfg.load_model}')
 
     print('=' * 60)
