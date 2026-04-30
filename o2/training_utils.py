@@ -86,6 +86,7 @@ def update_tdmpc(agent, buffer, step):
     """
     if hasattr(agent.model, 'track_TOLD_grad'):
         agent.model.track_TOLD_grad(True)
+        agent.model.track_O2_grad(False)
 
     buffer.cfg.batch_size = agent.cfg.batch_size
     num_updates = getattr(agent.cfg, 'told_updates', agent.cfg.episode_length)
@@ -96,6 +97,9 @@ def update_tdmpc(agent, buffer, step):
             metrics[k] = metrics.get(k, 0.0) + v
     for k in metrics:
         metrics[k] /= agent.cfg.told_updates
+
+    if hasattr(agent.model, 'track_O2_grad'):
+        agent.model.track_O2_grad(True)
 
     return metrics
 

@@ -231,11 +231,7 @@ def load_cfg() -> OmegaConf:
         cli = OmegaConf.from_cli()
         cli_overrides = OmegaConf.create({k: v for k, v in cli.items() if k != 'cfg'})
         cfg = OmegaConf.merge(cfg, custom, cli_overrides)
-    # episode_length and train_steps are derived from action_repeat in default.yaml,
-    # but parse_cfg may resolve them using the task default before a CLI override takes
-    # effect. Recompute them here so any action_repeat override is always respected.
-    cfg.episode_length = 1000 // cfg.action_repeat
-    cfg.train_steps    = 500000 // cfg.action_repeat
+        
     return cfg
 
 
