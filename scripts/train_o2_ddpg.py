@@ -105,6 +105,10 @@ def train(cfg):
             agent.model_target.load_state_dict(d['model_target'], strict=False)
         print(f'Loaded model from {cfg.load_model}')
 
+    if cfg.get('load_buffer', None):
+        buffer.__dict__.update(torch.load(cfg.load_buffer, weights_only=False))
+        print(f'Loaded buffer from {cfg.load_buffer}')
+
     print('=' * 60)
     print(OmegaConf.to_yaml(cfg))
     print('=' * 60)
