@@ -63,8 +63,8 @@ def DCEMethod(self, obs, update_mode=False, step=None, t0=True,
     with context():
         # Encode and tile latent state
         z = self.model.h(obs)                                              # [B, latent_dim]
-        z = z.unsqueeze(1).repeat(1, self.cfg.num_samples, 1)
-        z = z.view(B * self.cfg.num_samples, -1)                           # [B*N, latent_dim]
+        z = z.unsqueeze(1).repeat(1, self.cfg.latent_num_samples, 1)
+        z = z.view(B * self.cfg.latent_num_samples, -1)                    # [B*N, latent_dim]
         if update_mode:
             z = z.detach()
 
@@ -82,27 +82,27 @@ def DCEMethod(self, obs, update_mode=False, step=None, t0=True,
         for i in range(self.cfg.iterations):
             if seed is not None:
                 noises = [
-                    torch.randn(1, self.cfg.num_samples, self.cfg.latent_action_dim,
+                    torch.randn(1, self.cfg.latent_num_samples, self.cfg.latent_action_dim,
                                 device=self.cfg.device, generator=gens[b])
                     for b in range(B)
                 ]
                 u_noise = torch.cat(noises, dim=0)                         # [B, N, d_u]
             else:
-                u_noise = torch.randn(B, self.cfg.num_samples,
+                u_noise = torch.randn(B, self.cfg.latent_num_samples,
                                       self.cfg.latent_action_dim, device=self.cfg.device)
 
             u_samples      = u_mean.unsqueeze(1) + u_std.unsqueeze(1) * u_noise  # [B, N, d_u]
-            u_samples_flat = u_samples.view(B * self.cfg.num_samples, self.cfg.latent_action_dim)
+            u_samples_flat = u_samples.view(B * self.cfg.latent_num_samples, self.cfg.latent_action_dim)
 
             sequence = self.model.decode_sequence(u_samples_flat, z)
-            value    = self.estimate_value_with_grad(z, sequence, horizon).view(B, self.cfg.num_samples)
+            value    = self.estimate_value_with_grad(z, sequence, horizon).view(B, self.cfg.latent_num_samples)
 
             value_mean   = value.mean(dim=1, keepdim=True)
             value_std    = value.std(dim=1, keepdim=True) + 1e-8
             value_normed = (value - value_mean) / value_std
 
             # LML soft top-k elite selection
-            scores = LML(N=self.cfg.num_elites, verbose=0, eps=1e-4)(value_normed * lml_temperature)
+            scores = LML(N=self.cfg.latent_num_elites, verbose=0, eps=1e-4)(value_normed * lml_temperature)
             scores = scores / scores.sum(dim=1, keepdim=True)              # [B, N]
 
             w   = scores.unsqueeze(2)                                      # [B, N, 1]
@@ -154,8 +154,8 @@ def CEM_in_latent(self, obs, update_mode=False, step=None, t0=True,
     with torch.no_grad():
         # Encode and tile latent state
         z = self.model.h(obs)
-        z = z.unsqueeze(1).repeat(1, self.cfg.num_samples, 1)
-        z = z.view(B * self.cfg.num_samples, -1)
+        z = z.unsqueeze(1).repeat(1, self.cfg.latent_num_samples, 1)
+        z = z.view(B * self.cfg.latent_num_samples, -1)
 
         # Initialise search distribution
         u_mean = torch.zeros(self.cfg.latent_action_dim, device=self.cfg.device)
@@ -163,7 +163,7 @@ def CEM_in_latent(self, obs, update_mode=False, step=None, t0=True,
 
         # CEM iterations
         for i in range(self.cfg.iterations):
-            u_noise   = torch.randn(self.cfg.num_samples, self.cfg.latent_action_dim,
+            u_noise   = torch.randn(self.cfg.latent_num_samples, self.cfg.latent_action_dim,
                                     device=self.cfg.device)
             u_samples = u_mean.unsqueeze(0) + u_std.unsqueeze(0) * u_noise  # [N, d_u]
 
@@ -171,7 +171,7 @@ def CEM_in_latent(self, obs, update_mode=False, step=None, t0=True,
             value    = self.estimate_value(z, sequence, horizon).squeeze(1)  # [N]
 
             # Hard top-k elite selection
-            elite_idxs    = torch.topk(value, self.cfg.num_elites, dim=0).indices
+            elite_idxs    = torch.topk(value, self.cfg.latent_num_elites, dim=0).indices
             elite_samples = u_samples[elite_idxs]
 
             u_m = elite_samples.mean(dim=0)

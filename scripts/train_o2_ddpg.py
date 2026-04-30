@@ -64,6 +64,9 @@ O2_DEFAULTS = {
     'told_updates':         500,
     'decoder_start_steps':  5000,
     'exp_name':             'o2_ddpg',
+    # CEM hyperparams for O2 latent-space planning (independent of standard CEM)
+    'latent_num_samples':   32,
+    'latent_num_elites':    8,
 }
 
 
