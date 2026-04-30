@@ -10,9 +10,18 @@ Functions:
     update_decoder_pg    — on-policy PG decoder update over a PGEpisode
 """
 
+import random
 import torch
+import numpy as np
 from algorithm.helper import Episode, linear_schedule
 from o2.episode import PGEpisode
+
+
+def set_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
 
 def collect_episode(env, agent, cfg, step):
