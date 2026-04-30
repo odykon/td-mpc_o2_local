@@ -66,6 +66,8 @@ O2_DEFAULTS = {
     # CEM hyperparams for O2 latent-space planning (independent of standard CEM)
     'latent_num_samples':   32,
     'latent_num_elites':    8,
+    # recent-buffer sampling for decoder updates (None = full buffer)
+    'dcem_sampling_n':      None,   # None = full buffer; set to int for recency-biased sampling
 }
 
 

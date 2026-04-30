@@ -17,6 +17,43 @@ from algorithm.helper import Episode, linear_schedule
 from o2.episode import PGEpisode
 
 
+def sample_recent_obs(buffer, n):
+    """
+    Sample a batch of observations from the n most recent transitions in the buffer.
+
+    Uses PER weights computed over the recent window only (not the full buffer),
+    which avoids the weighting bug in the original sample_new implementation.
+
+    Args:
+        buffer: ReplayBuffer instance
+        n:      number of most recent transitions to sample from
+
+    Returns:
+        obs: [batch_size, obs_dim] observation tensor
+    """
+    total = int(buffer._full) * buffer.capacity + (not buffer._full) * buffer.idx
+    n = min(n, total)
+    end   = buffer.idx
+    start = (end - n) % buffer.capacity
+
+    if start < end:
+        recent_priorities = buffer._priorities[start:end]
+        offset = start
+    else:
+        recent_priorities = torch.cat([buffer._priorities[start:], buffer._priorities[:end]])
+        offset = start
+
+    probs = recent_priorities ** buffer.cfg.per_alpha
+    probs = probs / probs.sum()
+
+    rel_idxs = torch.from_numpy(
+        np.random.choice(len(probs), buffer.cfg.batch_size, p=probs.cpu().numpy(), replace=False)
+    ).to(buffer.device)
+
+    idxs = (rel_idxs + offset) % buffer.capacity
+    return buffer._get_obs(buffer._obs, idxs)
+
+
 def set_seed(seed: int):
     random.seed(seed)
     np.random.seed(seed)
@@ -124,9 +161,10 @@ def update_decoder(agent, buffer, cfg, step):
     buffer.cfg.batch_size = agent.cfg.dcem_batch_size
     horizon = int(linear_schedule(cfg.horizon_schedule, step))
 
+    n = getattr(agent.cfg, 'dcem_sampling_n', None)
     total_loss = 0.0
     for _ in range(agent.cfg.decoder_updates):
-        obs, *_ = buffer.sample()
+        obs = sample_recent_obs(buffer, n) if n else buffer.sample()[0]
         _, u_mean, _, _, _ = agent.DCEMethod(obs, update_mode=True, step=step, t0=False)
         total_loss += agent.action_decoder_DDPG_update(obs, u_mean, horizon)
 

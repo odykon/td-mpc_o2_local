@@ -15,7 +15,8 @@ o2/                    # O2 extension — latent action space decoder
   action_decoder.py    # Decoder MLP architecture and initialisation
   planning.py          # DCEMethod (differentiable CEM) and CEM_in_latent
   decoder_updates.py   # All decoder update strategies (DDPG, PG, PPO)
-  training_utils.py    # Shared loop utilities: update_tdmpc, update_decoder, update_decoder_pg
+  training_utils.py    # Shared loop utilities: set_seed, update_tdmpc, update_decoder, update_decoder_pg
+  logger.py            # CSVLogger — shared by all training scripts
   episode.py           # PGEpisode — extends Episode with on-policy fields
   eval_utils.py        # Evaluation, metrics, video saving
 
@@ -56,9 +57,21 @@ O2_DEFAULTS = {
     'told_updates':         500,
     'decoder_start_steps':  5000,
     'exp_name':             'o2_ddpg',
+    # CEM hyperparams for latent-space planning (independent of standard CEM)
+    'latent_num_samples':   32,
+    'latent_num_elites':    8,
 }
 ```
 These can be overridden by a custom YAML or CLI args.
+
+`episode_length` and `train_steps` are recomputed in `load_cfg` after all merges to ensure consistency when `action_repeat` is overridden (e.g. `action_repeat=1`).
+
+**Loading pre-trained weights** — pass `load_model` and/or `load_buffer` in a YAML or as CLI args:
+```yaml
+load_model: /path/to/model.pt   # supports both agent.save() format and raw state_dict
+load_buffer: /path/to/replay_buffer.pth
+```
+Works with checkpoints saved by the current script (`agent.save()`) and old-format checkpoints (`torch.save(agent.model.state_dict(), ...)`). The final model is always saved to `logs/.../final_model.pt` at the end of training.
 
 ## Config System
 
@@ -103,7 +116,8 @@ Both scripts add `REPO_ROOT` and `REPO_ROOT/tdmpc/src` to `sys.path` at startup,
 ## Conventions
 
 - Training scripts live in `scripts/` — one file per training procedure
-- Shared utilities (update loops) live in `o2/training_utils.py`
+- Shared utilities (update loops, `set_seed`) live in `o2/training_utils.py`
+- `CSVLogger` lives in `o2/logger.py` — import it from there in all training scripts
 - Decoder update functions are methods bound to `TDMPC_O2` — they take `self` as first arg
 - `update_tdmpc` in `training_utils.py` works for both `TDMPC` and `TDMPC_O2` (uses `hasattr` guards)
 - `tdmpc/` is upstream code — never modify it
