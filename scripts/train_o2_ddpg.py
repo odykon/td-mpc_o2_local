@@ -97,6 +97,12 @@ def train(cfg):
     agent  = TDMPC_O2(cfg)
     buffer = ReplayBuffer(cfg)
 
+    if cfg.get('load_model', None):
+        d = torch.load(cfg.load_model)
+        agent.model.load_state_dict(d['model'], strict=False)
+        agent.model_target.load_state_dict(d['model_target'], strict=False)
+        print(f'Loaded model from {cfg.load_model}')
+
     print('=' * 60)
     print(OmegaConf.to_yaml(cfg))
     print('=' * 60)
