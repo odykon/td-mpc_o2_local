@@ -64,21 +64,26 @@ Action entropy is included as a training objective alongside the main reward sig
 ```
 td-mpc_o2/
 ├── scripts/                  # Runnable training entry points
-│   └── train_tdmpc.py        # Standard TD-MPC training (base agent, CEM planning)
+│   ├── train_tdmpc.py        # Standard TD-MPC training (base agent, CEM planning)
+│   └── train_o2_ddpg.py      # O2 training with DDPG decoder update (two-phase loop)
 │
 ├── o2/                       # Thesis contributions (O2 extension)
+│   ├── tdmpc_o2.py           # TDMPC_O2 subclass: adds decoder, value network, and O2 planners
 │   ├── action_decoder.py     # Decoder and value network construction
 │   ├── planning.py           # DCEMethod (differentiable CEM) and CEM_in_latent
 │   ├── decoder_updates.py    # All decoder update strategies (DDPG, PG, PPO)
 │   ├── training_utils.py     # Shared loop utilities for training scripts
 │   ├── episode.py            # PGEpisode for on-policy data collection
-│   └── eval_utils.py         # Evaluation, metrics, video saving
+│   ├── eval_utils.py         # Evaluation, metrics, video saving
+│   └── logger.py             # CSV logger for train/eval metrics (shared by all scripts)
 │
 ├── tdmpc/                    # Original TD-MPC implementation (Hansen et al., 2022)
 │   ├── src/
 │   │   ├── algorithm/
 │   │   │   ├── tdmpc.py      # TOLD model + TDMPC agent
 │   │   │   └── helper.py     # Networks, losses, EMA utilities
+│   │   ├── train.py          # Original TD-MPC training entry point
+│   │   ├── logger.py         # Original TD-MPC logger
 │   │   ├── env.py            # DMControl wrappers
 │   │   └── cfg.py            # OmegaConf config parser
 │   └── cfgs/                 # YAML hyperparameter configs
