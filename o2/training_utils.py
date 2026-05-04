@@ -163,13 +163,17 @@ def update_decoder(agent, buffer, cfg, step):
 
     n = getattr(agent.cfg, 'dcem_sampling_n', None)
     total_loss = 0.0
+    total_grad_norm = 0.0
     for _ in range(agent.cfg.decoder_updates):
         obs = sample_recent_obs(buffer, n) if n else buffer.sample()[0]
         _, u_mean, _, _, _ = agent.DCEMethod(obs, update_mode=True, step=step, t0=False)
-        total_loss += agent.action_decoder_DDPG_update(obs, u_mean, horizon)
+        loss, grad_norm = agent.action_decoder_DDPG_update(obs, u_mean, horizon)
+        total_loss += loss
+        total_grad_norm += grad_norm
 
     agent.model.track_TOLD_grad(True)
-    return total_loss / agent.cfg.decoder_updates
+    n_updates = agent.cfg.decoder_updates
+    return total_loss / n_updates, total_grad_norm / n_updates
 
 
 def update_decoder_pg(agent, episode, step):

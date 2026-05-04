@@ -160,10 +160,11 @@ def train(cfg):
 
         # --- Update decoder (DDPG) ---
         decoder_loss = 0.0
+        decoder_grad_norm = 0.0
         decoder_time = 0.0
         if phase == 'o2':
             t_dec = time.time()
-            decoder_loss = update_decoder(agent, buffer, cfg, step)
+            decoder_loss, decoder_grad_norm = update_decoder(agent, buffer, cfg, step)
             decoder_time = time.time() - t_dec
 
         # --- Log training episode ---
@@ -179,9 +180,10 @@ def train(cfg):
             'std':            linear_schedule(cfg.std_schedule, step),
             'ep_time':        ep_time,
             'update_time':    update_time,
-            'decoder_time':   decoder_time,
-            'decoder_loss':   decoder_loss,
-            'phase':          phase,
+            'decoder_time':      decoder_time,
+            'decoder_loss':      decoder_loss,
+            'decoder_grad_norm': decoder_grad_norm,
+            'phase':             phase,
             **train_metrics,
         })
 

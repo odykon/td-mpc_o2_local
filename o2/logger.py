@@ -21,7 +21,7 @@ class CSVLogger:
     TRAIN_FIELDS = [
         'episode', 'step', 'env_step', 'total_time', 'episode_reward',
         'horizon', 'std', 'ep_time', 'update_time',
-        'phase', 'decoder_time', 'decoder_loss',
+        'phase', 'decoder_time', 'decoder_loss', 'decoder_grad_norm',
         'consistency_loss', 'reward_loss', 'value_loss',
         'pi_loss', 'total_loss', 'weighted_loss', 'grad_norm',
     ]
@@ -58,6 +58,7 @@ class CSVLogger:
         if phase == 'o2':
             print(f'  {"Decoder time":<16}: {d.get("decoder_time", 0):>7.1f}s')
             print(f'  {"Decoder loss":<16}: {d.get("decoder_loss", 0):>8.4f}')
+            print(f'  {"Decoder grad":<16}: {d.get("decoder_grad_norm", 0):>8.4f}')
         print(f'  {"Total time":<16}: {d.get("total_time", 0):>7.0f}s')
         if d.get('total_loss', '') != '':
             print(f'  {"total_loss":<16}: {d["total_loss"]:>8.3f}')

@@ -49,9 +49,10 @@ def action_decoder_DDPG_update(self, obs, u_mean, horizon):
     cost     = -value.mean()
 
     cost.backward()
+    grad_norm = utils.clip_grad_norm_(self.model._action_decoder.parameters(), max_norm=1)
     self.action_dec_optim.step()
 
-    return cost.item()
+    return cost.item(), grad_norm.item()
 
 
 # ---------------------------------------------------------------------------

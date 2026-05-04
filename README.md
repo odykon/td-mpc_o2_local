@@ -2,8 +2,6 @@
 
 This repository contains the implementation for my Master's thesis, which extends the [TD-MPC](https://nicklashansen.github.io/td-mpc/) framework (Hansen et al., 2022) with a **learned latent action space** to improve both the sample efficiency and computational efficiency of model-based reinforcement learning in continuous control tasks.
 
-The PyTorch implementation is openly available at: **https://github.com/odykon/td-mpc_o2**
-
 ---
 ## Contributions
 
