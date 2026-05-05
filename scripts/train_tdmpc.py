@@ -145,6 +145,11 @@ def train(cfg):
             ckpt_dir.mkdir(exist_ok=True)
             agent.save(ckpt_dir / f'model_{env_step}.pt')
 
+    if cfg.get('save_model', False):
+        agent.save(work_dir / 'final_model.pt')
+        torch.save(buffer.__dict__, work_dir / 'replay_buffer.pth')
+        print(f'Saved model and buffer to {work_dir}')
+
     logger.close()
     print('\nTraining complete.')
 

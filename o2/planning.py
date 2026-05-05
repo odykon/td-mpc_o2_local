@@ -29,7 +29,7 @@ import algorithm.helper as h
 from lml import LML
 
 def DCEMethod(self, obs, update_mode=False, step=None, t0=True,
-              seed=None, sample_final_action=False, lml_temperature=10):
+              sample_final_action=False, lml_temperature=10):
     """
     Plan using the Differentiable Cross-Entropy Method in latent action space.
 
@@ -41,7 +41,6 @@ def DCEMethod(self, obs, update_mode=False, step=None, t0=True,
                               If False, runs under torch.no_grad().
         step:                 Current training step (for horizon schedule).
         t0:                   Whether this is the first step of an episode.
-        seed:                 Optional int seed for reproducible noise sampling.
         sample_final_action:  If True, sample from the final distribution
                               instead of using the mean.
         lml_temperature:      Temperature for the LML soft top-k projection.
@@ -74,32 +73,15 @@ def DCEMethod(self, obs, update_mode=False, step=None, t0=True,
         u_std  = 2 * torch.ones(B, self.cfg.latent_action_dim,
                                 device=self.cfg.device, requires_grad=update_mode)
 
-        # Optional per-element RNG for reproducibility
-        if seed is not None:
-            gens = h.sample_u_noise_generators(B, self.cfg.device, seed)
-
         # CEM iterations
         for i in range(self.cfg.iterations):
-            if seed is not None:
-                noises = [
-                    torch.randn(1, self.cfg.latent_num_samples, self.cfg.latent_action_dim,
-                                device=self.cfg.device, generator=gens[b])
-                    for b in range(B)
-                ]
-                u_noise = torch.cat(noises, dim=0)                         # [B, N, d_u]
-            else:
-                u_noise = torch.randn(B, self.cfg.latent_num_samples,
-                                      self.cfg.latent_action_dim, device=self.cfg.device)
-
+            u_noise        = torch.randn(B, self.cfg.latent_num_samples,
+                                         self.cfg.latent_action_dim, device=self.cfg.device)
             u_samples      = u_mean.unsqueeze(1) + u_std.unsqueeze(1) * u_noise  # [B, N, d_u]
             u_samples_flat = u_samples.view(B * self.cfg.latent_num_samples, self.cfg.latent_action_dim)
 
             sequence = self.model.decode_sequence(u_samples_flat, z)
             value    = self.estimate_value_with_grad(z, sequence, horizon).view(B, self.cfg.latent_num_samples)
-
-            # value_mean   = value.mean(dim=1, keepdim=True)
-            # value_std    = value.std(dim=1, keepdim=True) + 1e-8
-            # value_normed = (value - value_mean) / value_std
 
             # LML soft top-k elite selection
             scores = LML(N=self.cfg.latent_num_elites, verbose=0, eps=1e-4)(value * lml_temperature)
@@ -125,6 +107,78 @@ def DCEMethod(self, obs, update_mode=False, step=None, t0=True,
         action   = sequence[0, :].squeeze_(0)
 
     return action, u_mean, u_std, latent_action, log_probs
+
+
+def DCEMethod_v2(self, obs, step=None, t0=True,
+                 sample_final_action=False, lml_temperature=10):
+    """
+    DCEMethod with per-iteration gradient tracking via backward hooks.
+
+    Only runs in update_mode=True. Registers a hook on u_m at each CEM
+    iteration that records the gradient norm flowing back through that
+    iteration during backward(). The grad_tracker list is returned empty
+    and populated only after cost.backward() is called by the caller.
+
+    Returns:
+        action, u_mean, u_std, latent_action, log_probs, grad_tracker
+        grad_tracker: list of (iteration, grad_norm) tuples, sorted by
+                      iteration after backward() completes.
+    """
+    obs = obs if isinstance(obs, torch.Tensor) else \
+          torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
+    B = obs.shape[0]
+    horizon = int(min(self.cfg.horizon, h.linear_schedule(self.cfg.horizon_schedule, step)))
+
+    grad_tracker = []
+
+    with torch.enable_grad():
+        z = self.model.h(obs)
+        z = z.unsqueeze(1).repeat(1, self.cfg.latent_num_samples, 1)
+        z = z.view(B * self.cfg.latent_num_samples, -1)
+        z = z.detach()
+
+        u_mean = torch.zeros(B, self.cfg.latent_action_dim,
+                             device=self.cfg.device, requires_grad=True)
+        u_std  = 2 * torch.ones(B, self.cfg.latent_action_dim,
+                                device=self.cfg.device, requires_grad=True)
+
+        for i in range(self.cfg.iterations):
+            u_noise        = torch.randn(B, self.cfg.latent_num_samples,
+                                         self.cfg.latent_action_dim, device=self.cfg.device)
+            u_samples      = u_mean.unsqueeze(1) + u_std.unsqueeze(1) * u_noise
+            u_samples_flat = u_samples.view(B * self.cfg.latent_num_samples, self.cfg.latent_action_dim)
+
+            sequence = self.model.decode_sequence(u_samples_flat, z)
+            value    = self.estimate_value_with_grad(z, sequence, horizon).view(B, self.cfg.latent_num_samples)
+
+            scores = LML(N=self.cfg.latent_num_elites, verbose=0, eps=1e-4)(value * lml_temperature)
+            scores = scores / scores.sum(dim=1, keepdim=True)
+
+            w   = scores.unsqueeze(2)
+            u_m = (w * u_samples).sum(dim=1)
+            u_s = torch.sqrt(
+                (w * (u_samples - u_m.unsqueeze(1)) ** 2).sum(dim=1)
+                / (scores.sum(dim=1, keepdim=True) + 1e-9)
+            ).clamp(self.std, 2)
+
+            def make_hook(iteration):
+                def hook(grad):
+                    grad_tracker.append((iteration, grad.norm().item()))
+                return hook
+            u_m.register_hook(make_hook(i))
+
+            u_mean = self.cfg.momentum * u_mean + (1 - self.cfg.momentum) * u_m
+            u_std  = u_s
+
+        z_0   = self.model.h(obs).detach()
+        dist  = torch.distributions.Normal(loc=u_mean, scale=u_std)
+        latent_action = dist.rsample() if sample_final_action else u_mean
+        log_probs     = dist.log_prob(latent_action).squeeze_(0).sum(dim=0)
+
+        sequence = self.model.decode_sequence(latent_action, z_0)
+        action   = sequence[0, :].squeeze_(0)
+
+    return action, u_mean, u_std, latent_action, log_probs, grad_tracker
 
 
 def CEM_in_latent(self, obs, update_mode=False, step=None, t0=True,
