@@ -160,14 +160,13 @@ def train(cfg):
             update_time = time.time() - t_update
 
         # --- Update decoder (DDPG) ---
-        decoder_loss = 0.0
-        decoder_grad_norm = 0.0
+        dec_metrics = {}
         decoder_time = 0.0
         if phase == 'o2':
             t_dec = time.time()
-            decoder_loss, decoder_grad_norm, grad_tracker = update_decoder(agent, buffer, cfg, step)
+            dec_metrics = update_decoder(agent, buffer, cfg, step)
             decoder_time = time.time() - t_dec
-            for iteration, norm in sorted(grad_tracker):
+            for iteration, norm in sorted(dec_metrics['grad_tracker']):
                 print(f'  DCEM iter {iteration} grad norm: {norm:.6f}')
 
         # --- Log training episode ---
@@ -183,11 +182,10 @@ def train(cfg):
             'std':            linear_schedule(cfg.std_schedule, step),
             'ep_time':        ep_time,
             'update_time':    update_time,
-            'decoder_time':      decoder_time,
-            'decoder_loss':      decoder_loss,
-            'decoder_grad_norm': decoder_grad_norm,
-            'phase':             phase,
+            'decoder_time':   decoder_time,
+            'phase':          phase,
             **train_metrics,
+            **dec_metrics,
         })
 
         # --- Periodic evaluation ---

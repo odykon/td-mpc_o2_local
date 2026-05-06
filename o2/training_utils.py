@@ -155,27 +155,26 @@ def update_decoder(agent, buffer, cfg, step):
         step:   current global step
 
     Returns:
-        float: mean decoder loss across all update iterations
+        dict with keys: decoder_loss, decoder_grad_norm, saturation, grad_tracker
     """
     agent.model.track_TOLD_grad(False)
     buffer.cfg.batch_size = agent.cfg.dcem_batch_size
     horizon = int(linear_schedule(cfg.horizon_schedule, step))
 
     n = getattr(agent.cfg, 'dcem_sampling_n', None)
-    total_loss = 0.0
-    total_grad_norm = 0.0
+    accum = {'decoder_loss': 0.0, 'decoder_grad_norm': 0.0, 'saturation': 0.0}
     last_grad_tracker = []
     for _ in range(agent.cfg.decoder_updates):
         obs = sample_recent_obs(buffer, n) if n else buffer.sample()[0]
         _, u_mean, u_std, _, _, grad_tracker = agent.DCEMethod_v2(obs, step=step, t0=False)
-        loss, grad_norm, _ = agent.action_decoder_DDPG_update_v2(obs, u_mean, u_std, horizon)
-        total_loss += loss
-        total_grad_norm += grad_norm
+        metrics = agent.action_decoder_DDPG_update_v2(obs, u_mean, u_std, horizon)
+        for k in accum:
+            accum[k] += metrics[k]
         last_grad_tracker = grad_tracker
 
     agent.model.track_TOLD_grad(True)
     n_updates = agent.cfg.decoder_updates
-    return total_loss / n_updates, total_grad_norm / n_updates, last_grad_tracker
+    return {k: v / n_updates for k, v in accum.items()} | {'grad_tracker': last_grad_tracker}
 
 
 def update_decoder_pg(agent, episode, step):

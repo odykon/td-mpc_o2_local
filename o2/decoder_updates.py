@@ -94,7 +94,7 @@ def action_decoder_DDPG_update_v2(self, obs, u_mean, u_std, horizon):
         horizon: int planning horizon.
 
     Returns:
-        cost (float), grad_norm (float), saturation (float)
+        dict with keys: decoder_loss, decoder_grad_norm, saturation
     """
     self.action_dec_optim.zero_grad()
 
@@ -116,7 +116,7 @@ def action_decoder_DDPG_update_v2(self, obs, u_mean, u_std, horizon):
     grad_norm = utils.clip_grad_norm_(self.model._action_decoder.parameters(), max_norm=1)
     self.action_dec_optim.step()
 
-    return cost.item(), grad_norm.item(), saturation
+    return {'decoder_loss': cost.item(), 'decoder_grad_norm': grad_norm.item(), 'saturation': saturation}
 
 
 # ---------------------------------------------------------------------------
