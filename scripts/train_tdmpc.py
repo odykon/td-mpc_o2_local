@@ -25,6 +25,7 @@ import os
 os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
 os.environ['MUJOCO_GL'] = 'egl'
 
+import re
 import sys
 from pathlib import Path
 
@@ -195,6 +196,12 @@ def load_cfg() -> OmegaConf:
         cli = OmegaConf.from_cli()
         cli_overrides = OmegaConf.create({k: v for k, v in cli.items() if k != 'cfg'})
         cfg = OmegaConf.merge(cfg, custom, cli_overrides)
+        for k, v in cfg.items():
+            if isinstance(v, str):
+                match = re.match(r'(\d+)([+\-*/])(\d+)', v)
+                if match:
+                    result = eval(match.group(1) + match.group(2) + match.group(3))
+                    cfg[k] = int(result) if isinstance(result, float) and result.is_integer() else result
     return cfg
 
 
