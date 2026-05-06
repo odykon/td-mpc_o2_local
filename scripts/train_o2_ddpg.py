@@ -68,6 +68,7 @@ O2_DEFAULTS = {
     'latent_num_elites':    8,
     # recent-buffer sampling for decoder updates (None = full buffer)
     'dcem_sampling_n':      None,   # None = full buffer; set to int for recency-biased sampling
+    'saturation_coeff':     0.0,    # set > 0 to enable saturation penalty
 }
 
 
@@ -164,8 +165,10 @@ def train(cfg):
         decoder_time = 0.0
         if phase == 'o2':
             t_dec = time.time()
-            decoder_loss, decoder_grad_norm = update_decoder(agent, buffer, cfg, step)
+            decoder_loss, decoder_grad_norm, grad_tracker = update_decoder(agent, buffer, cfg, step)
             decoder_time = time.time() - t_dec
+            for iteration, norm in sorted(grad_tracker):
+                print(f'  DCEM iter {iteration} grad norm: {norm:.6f}')
 
         # --- Log training episode ---
         episode_idx += 1

@@ -19,9 +19,11 @@ from algorithm.tdmpc import TDMPC
 from o2.action_decoder import (build_action_decoder, decode_sequence,
                                 decode_sequence_pretanh, track_TOLD_grad,
                                 track_O2_grad, build_value_network)
-from o2.planning import DCEMethod, CEM_in_latent
-from o2.decoder_updates import (action_decoder_DDPG_update, PG_withV,
-                                 action_entropy_loss, V_net_update)
+from o2.planning import DCEMethod, DCEMethod_v2, CEM_in_latent
+from o2.decoder_updates import (action_decoder_DDPG_update,
+                                 action_decoder_DDPG_update_v2,
+                                 PG_withV, action_entropy_loss,
+                                 V_net_update, saturation_loss)
 
 
 class TDMPC_O2(TDMPC):
@@ -63,11 +65,20 @@ class TDMPC_O2(TDMPC):
     def DCEMethod(self, *args, **kwargs):
         return DCEMethod(self, *args, **kwargs)
 
+    def DCEMethod_v2(self, *args, **kwargs):
+        return DCEMethod_v2(self, *args, **kwargs)
+
     def CEM_in_latent(self, *args, **kwargs):
         return CEM_in_latent(self, *args, **kwargs)
 
     def action_decoder_DDPG_update(self, *args, **kwargs):
         return action_decoder_DDPG_update(self, *args, **kwargs)
+
+    def action_decoder_DDPG_update_v2(self, *args, **kwargs):
+        return action_decoder_DDPG_update_v2(self, *args, **kwargs)
+
+    def saturation_loss(self, *args, **kwargs):
+        return saturation_loss(self, *args, **kwargs)
 
     def PG_withV(self, *args, **kwargs):
         return PG_withV(self, *args, **kwargs)

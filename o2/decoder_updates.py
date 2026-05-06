@@ -6,14 +6,32 @@ All decoder update strategies for the latent action space.
 Provides three update methods, each designed to be bound as a method on
 TDMPC_O2 (self = TDMPC_O2 instance):
 
-    action_decoder_DDPG_update — Off-policy, DDPG-style value maximisation
-    PG_withV                   — On-policy policy gradient with value baseline
-    action_decoder_PPO         — PPO-KL style update (on-policy)
+    action_decoder_DDPG_update    — Off-policy, DDPG-style value maximisation
+    action_decoder_DDPG_update_v2 — Same + entropy regularization + saturation penalty
+    PG_withV                      — On-policy policy gradient with value baseline
+    action_decoder_PPO            — PPO-KL style update (on-policy)
 
-Plus two shared helpers used by the PG-based updates:
+Shared helpers:
 
-    V_net_update               — TD(0) update for the value baseline network
-    action_entropy_loss        — SAC-style entropy regulariser
+    V_net_update    — TD(0) update for the value baseline network
+    action_entropy_loss — SAC-style entropy regulariser
+    saturation_loss — Tanh log-jacobian penalty (discourages action saturation)
+
+Saturation penalty options (both available in action_decoder_DDPG_update_v2):
+
+    Option 1 — Jacobian penalty (inline, fast):
+        Computed directly from pretanh values already obtained via
+        decode_sequence_pretanh. No extra sampling needed.
+        jacobian_penalty = -log(1 - tanh(pretanh)^2 + eps).sum(-1).mean(0)  [B]
+        cost = -(value - coeff * jacobian_penalty).mean()
+
+    Option 2 — Saturation loss (sampled, richer signal):
+        Samples from the CEM distribution, decodes each sample, and
+        computes the mean log-jacobian across the full distribution.
+        Captures saturation across the entire latent action distribution,
+        not just at the mean. More expensive than Option 1.
+        sat = saturation_loss(u_mean, u_std, z)  scalar
+        cost = -value.mean() + coeff * sat
 """
 
 import torch
@@ -53,6 +71,52 @@ def action_decoder_DDPG_update(self, obs, u_mean, horizon):
     self.action_dec_optim.step()
 
     return cost.item(), grad_norm.item()
+
+
+# ---------------------------------------------------------------------------
+# 1b. DDPG update v2 — with entropy regularization + saturation penalty
+# ---------------------------------------------------------------------------
+
+def action_decoder_DDPG_update_v2(self, obs, u_mean, u_std, horizon):
+    """
+    DDPG-style decoder update with entropy regularization and saturation penalty.
+
+    Two saturation penalty options are available — select by uncommenting:
+      Option 1 (inline jacobian penalty): fast, uses pretanh values directly.
+      Option 2 (saturation_loss):         sampled, captures full distribution.
+
+    Args:
+        obs:     [B, obs_dim] observation batch from the replay buffer.
+        u_mean:  [B, latent_action_dim] differentiable latent action mean
+                 obtained from DCEMethod(update_mode=True).
+        u_std:   [B, latent_action_dim] differentiable latent action std
+                 obtained from DCEMethod(update_mode=True).
+        horizon: int planning horizon.
+
+    Returns:
+        cost (float), grad_norm (float), saturation (float)
+    """
+    self.action_dec_optim.zero_grad()
+
+    z                 = self.model.h(obs).detach()
+    sequence, pretanh = self.model.decode_sequence_pretanh(u_mean, z)
+    value             = self.estimate_value_with_grad(z, sequence, horizon).nan_to_num(0).squeeze(-1)
+    saturation        = pretanh.abs().mean().item()
+
+    # --- Option 1: inline jacobian penalty [B], subtracted per batch element ---
+    jacobian_penalty = -torch.log(1 - sequence.pow(2) + 1e-6).sum(-1).mean(0)  # [B]
+    cost = -(value - self.cfg.saturation_coeff * jacobian_penalty).mean()
+
+    # --- Option 2: saturation_loss (sampled across distribution), scalar ---
+    #saturation_coeff = getattr(self.cfg, 'saturation_coeff', 0.0)
+    #sat_loss = self.saturation_loss(u_mean, u_std, z) if saturation_coeff > 0 else 0.0
+    #cost = -(value - saturation_coeff * sat_loss).mean()
+
+    cost.backward()
+    grad_norm = utils.clip_grad_norm_(self.model._action_decoder.parameters(), max_norm=1)
+    self.action_dec_optim.step()
+
+    return cost.item(), grad_norm.item(), saturation
 
 
 # ---------------------------------------------------------------------------
@@ -290,3 +354,38 @@ def action_entropy_loss(self, u_mean, u_std, z_state, num_samples=20, horizon=5)
     entropy      = entropy_flat.view(B, T)
 
     return entropy.mean(dim=1).mean()
+
+
+# ---------------------------------------------------------------------------
+# 6. Saturation loss — tanh log-jacobian penalty
+# ---------------------------------------------------------------------------
+
+def saturation_loss(self, u_mean, u_std, z_state, num_samples=20):
+    """
+    Tanh log-jacobian penalty across the decoded action distribution.
+
+    Samples latent actions from the CEM distribution, decodes each via the
+    decoder, and computes the mean negative log-jacobian of the tanh squashing:
+        penalty = -log(1 - tanh(pretanh)^2 + eps)
+    This is large when actions are near ±1 (saturated) and zero when pretanh ≈ 0.
+    Summed over action_dim and averaged over horizon and samples.
+
+    Args:
+        u_mean      (Tensor): [B, latent_dim]
+        u_std       (Tensor): [B, latent_dim]
+        z_state     (Tensor): [B, z_dim]
+        num_samples (int):    Monte-Carlo samples per batch element
+
+    Returns:
+        Tensor: scalar penalty
+    """
+    u_dist     = torch.distributions.Normal(u_mean, u_std)
+    u_samples  = u_dist.rsample((num_samples,))                  # [S, B, latent_dim]
+    u_flat     = u_samples.reshape(-1, u_samples.shape[-1])      # [S*B, latent_dim]
+    z_repeated = z_state.repeat_interleave(num_samples, dim=0)   # [S*B, z_dim]
+
+    _, pretanh  = self.model.decode_sequence_pretanh(u_flat, z_repeated)  # [horizon, S*B, action_dim]
+    actions     = torch.tanh(pretanh)
+    log_jacobian = torch.log(1 - actions.pow(2) + 1e-6)          # [horizon, S*B, action_dim]
+
+    return -log_jacobian.sum(-1).mean()
