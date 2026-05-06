@@ -10,10 +10,16 @@ scripts/               # Runnable training entry points
   train_tdmpc.py       # Standard TD-MPC training (base agent, CEM planning)
   train_o2_ddpg.py     # O2 training: CEM in latent space + DDPG decoder update
 
+cfgs/                  # Custom YAML configs for training runs
+  train_tdmpc.yaml     # Config for train_tdmpc.py — edit this to set hyperparams
+
+notebooks/             # Debug/interactive training notebooks
+  train_o2_ddpg_debug.ipynb  # Interactive O2 DDPG training loop
+
 o2/                    # O2 extension — latent action space decoder
   tdmpc_o2.py          # TDMPC_O2 class: TDMPC subclass with decoder + value network
   action_decoder.py    # Decoder MLP architecture and initialisation
-  planning.py          # DCEMethod (differentiable CEM) and CEM_in_latent
+  planning.py          # DCEMethod (differentiable CEM), DCEMethod_v2 (with grad tracking), CEM_in_latent
   decoder_updates.py   # All decoder update strategies (DDPG, PG, PPO)
   training_utils.py    # Shared loop utilities: set_seed, update_tdmpc, update_decoder, update_decoder_pg
   logger.py            # CSVLogger — shared by all training scripts
@@ -97,6 +103,20 @@ OmegaConf.save(cfg, 'my_cfg.yaml')
 
 Disable evaluations by setting `eval_episodes=0` in the config.
 
+## Config System — Custom YAML fields
+
+The custom YAML (e.g. `cfgs/train_tdmpc.yaml`) supports a few extra fields beyond the base defaults:
+
+- `mujoco_episode_steps` / `mujoco_train_steps` — raw MuJoCo interaction counts; `episode_length` and `train_steps` are derived by dividing by `action_repeat` via `load_cfg`'s arithmetic evaluation
+- `seed_steps_real` — pre-action-repeat seed steps; set `seed_steps: ${seed_steps_real}/${action_repeat}`
+- Schedules (`std_schedule`, `horizon_schedule`) do **not** support interpolation inside the `linear(...)` string — hardcode the divided value directly
+
+Run with:
+```bash
+python3 scripts/train_tdmpc.py cfg=cfgs/train_tdmpc.yaml
+python3 scripts/train_tdmpc.py cfg=cfgs/train_tdmpc.yaml seed=2 task=cheetah-run
+```
+
 ## Kaggle Usage
 
 ```bash
@@ -112,6 +132,38 @@ GPU runtime must be enabled. `MUJOCO_GL=egl` is set automatically by the scripts
 
 Both scripts add `REPO_ROOT` and `REPO_ROOT/tdmpc/src` to `sys.path` at startup, so all imports
 (`o2`, `algorithm`, `cfg`, `env`) resolve correctly without manual path setup.
+
+## Remote GPU Cluster Setup (kalymnos)
+
+The cluster has no sudo access and the system disk (`/`) is nearly full. All large files must go on `/gpu-data3`.
+
+**One-time environment setup:**
+```bash
+# Install miniconda to gpu-data3
+cd /gpu-data3
+curl -L -O https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh -b -p /gpu-data3/okonias/miniconda3
+source /gpu-data3/okonias/miniconda3/bin/activate
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+conda create -p /gpu-data3/okonias/envs/tdmpc_o2 python=3.9 -y
+conda activate /gpu-data3/okonias/envs/tdmpc_o2
+
+# Install packages — use TMPDIR and cache-dir to avoid writing to full system disk
+mkdir -p /gpu-data3/okonias/tmp
+TMPDIR=/gpu-data3/okonias/tmp pip install torch omegaconf --cache-dir /gpu-data3/okonias/pip_cache
+TMPDIR=/gpu-data3/okonias/tmp pip install mujoco dm-control gym --only-binary :all: --cache-dir /gpu-data3/okonias/pip_cache
+```
+
+**Each session:**
+```bash
+source /gpu-data3/okonias/miniconda3/bin/activate
+conda activate /gpu-data3/okonias/envs/tdmpc_o2
+cd ~/projects/td-mpc_o2
+python3 scripts/train_tdmpc.py cfg=cfgs/train_tdmpc.yaml
+```
+
+Note: `MUJOCO_GL=egl` is set automatically by the training scripts.
 
 ## Conventions
 
