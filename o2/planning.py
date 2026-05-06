@@ -132,10 +132,9 @@ def DCEMethod_v2(self, obs, step=None, t0=True,
     grad_tracker = []
 
     with torch.enable_grad():
-        z = self.model.h(obs)
-        z = z.unsqueeze(1).repeat(1, self.cfg.latent_num_samples, 1)
+        z_enc = self.model.h(obs).detach()                                   # [B, z_dim]
+        z = z_enc.unsqueeze(1).repeat(1, self.cfg.latent_num_samples, 1)
         z = z.view(B * self.cfg.latent_num_samples, -1)
-        z = z.detach()
 
         u_mean = torch.zeros(B, self.cfg.latent_action_dim,
                              device=self.cfg.device, requires_grad=True)
@@ -143,39 +142,38 @@ def DCEMethod_v2(self, obs, step=None, t0=True,
                                 device=self.cfg.device, requires_grad=True)
 
         for i in range(self.cfg.iterations):
-            u_noise        = torch.randn(B, self.cfg.latent_num_samples,
-                                         self.cfg.latent_action_dim, device=self.cfg.device)
-            u_samples      = u_mean.unsqueeze(1) + u_std.unsqueeze(1) * u_noise
-            u_samples_flat = u_samples.view(B * self.cfg.latent_num_samples, self.cfg.latent_action_dim)
+            u_noise  = torch.randn(B, self.cfg.latent_num_samples,
+                                   self.cfg.latent_action_dim, device=self.cfg.device)
+            u_samples = u_mean.unsqueeze(1) + u_std.unsqueeze(1) * u_noise
+            u_flat    = u_samples.view(B * self.cfg.latent_num_samples, self.cfg.latent_action_dim)
 
-            sequence = self.model.decode_sequence(u_samples_flat, z)
+            sequence = self.model.decode_sequence(u_flat, z)
             value    = self.estimate_value_with_grad(z, sequence, horizon).view(B, self.cfg.latent_num_samples)
 
-            scores = LML(N=self.cfg.latent_num_elites, verbose=0, eps=1e-4)(value * lml_temperature)
-            scores = scores / scores.sum(dim=1, keepdim=True)
+            scores        = LML(N=self.cfg.latent_num_elites, verbose=0, eps=1e-4)(value * lml_temperature)
+            scores        = scores / scores.sum(dim=1, keepdim=True)
+            elite_weights = scores.unsqueeze(2)
 
-            w   = scores.unsqueeze(2)
-            u_m = (w * u_samples).sum(dim=1)
+            u_m = (elite_weights * u_samples).sum(dim=1)
             u_s = torch.sqrt(
-                (w * (u_samples - u_m.unsqueeze(1)) ** 2).sum(dim=1)
+                (elite_weights * (u_samples - u_m.unsqueeze(1)) ** 2).sum(dim=1)
                 / (scores.sum(dim=1, keepdim=True) + 1e-9)
-            ).clamp(self.std, 2)
+            )
 
             def make_hook(iteration):
-                def hook(grad):
+                def record_grad(grad):
                     grad_tracker.append((iteration, grad.norm().item()))
-                return hook
+                return record_grad
             u_m.register_hook(make_hook(i))
 
-            u_mean = self.cfg.momentum * u_mean + (1 - self.cfg.momentum) * u_m
+            u_mean = u_m
             u_std  = u_s
 
-        z_0   = self.model.h(obs).detach()
         dist  = torch.distributions.Normal(loc=u_mean, scale=u_std)
         latent_action = dist.rsample() if sample_final_action else u_mean
         log_probs     = dist.log_prob(latent_action).squeeze_(0).sum(dim=0)
 
-        sequence = self.model.decode_sequence(latent_action, z_0)
+        sequence = self.model.decode_sequence(latent_action, z_enc)
         action   = sequence[0, :].squeeze_(0)
 
     return action, u_mean, u_std, latent_action, log_probs, grad_tracker
