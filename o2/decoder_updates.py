@@ -113,7 +113,10 @@ def action_decoder_DDPG_update_v2(self, obs, u_mean, u_std, horizon):
     #cost = -(value - saturation_coeff * sat_loss).mean()
 
     cost.backward()
-    #grad_norm = utils.clip_grad_norm_(self.model._action_decoder.parameters(), max_norm=1)
+    grad_norm = torch.sqrt(sum(
+        p.grad.norm() ** 2
+        for p in self.model._action_decoder.parameters() if p.grad is not None
+    ))
     self.action_dec_optim.step()
 
     return {'decoder_loss': cost.item(), 'decoder_grad_norm': grad_norm.item(), 'saturation': saturation}
