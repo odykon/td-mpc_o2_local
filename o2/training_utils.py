@@ -164,10 +164,15 @@ def update_decoder(agent, buffer, cfg, step):
     n = getattr(agent.cfg, 'dcem_sampling_n', None)
     accum = {'decoder_loss': 0.0, 'decoder_grad_norm': 0.0, 'saturation': 0.0}
     last_grad_tracker = []
+    use_is_weights = getattr(agent.cfg, 'use_is_weights', False)
     for _ in range(agent.cfg.decoder_updates):
-        obs = sample_recent_obs(buffer, n) if n else buffer.sample()[0]
+        if use_is_weights:
+            obs, _, _, _, _, weights = buffer.sample()
+        else:
+            obs = sample_recent_obs(buffer, n) if n else buffer.sample()[0]
+            weights = None
         _, u_mean, u_std, _, _, grad_tracker = agent.DCEMethod_v2(obs, step=step, t0=False)
-        metrics = agent.action_decoder_DDPG_update_v2(obs, u_mean, u_std, horizon)
+        metrics = agent.action_decoder_DDPG_update_v2(obs, u_mean, u_std, horizon, weights)
         for k in accum:
             accum[k] += metrics[k]
         last_grad_tracker = grad_tracker

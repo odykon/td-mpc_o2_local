@@ -1,0 +1,75 @@
+# ── Task ──────────────────────────────────────────────────────────────────────
+task: cheetah-run
+seed: 1
+exp_name: o2_ddpg
+
+# ── Training ──────────────────────────────────────────────────────────────────
+mujoco_episode_steps: 1000
+mujoco_train_steps:   500000
+episode_length: ${mujoco_episode_steps}/${action_repeat}
+train_steps:    ${mujoco_train_steps}/${action_repeat}
+
+# ── Phase transition ──────────────────────────────────────────────────────────
+decoder_start_steps: 5000       # env steps before decoder training begins
+
+# ── Planning (standard CEM — Phase 1) ────────────────────────────────────────
+iterations:   5
+num_samples:  512
+num_elites:   64
+temperature:  0.5
+momentum:     0.1
+min_std:      0.05
+
+# ── Planning (latent CEM — Phase 2) ──────────────────────────────────────────
+latent_num_samples: 32
+latent_num_elites:  8
+
+# ── Learning ──────────────────────────────────────────────────────────────────
+lr:         1e-3
+batch_size: 512
+horizon:    5
+discount:   0.99
+tau:        0.01
+grad_clip_norm: 10
+seed_steps: 4000
+
+# Loss coefficients
+reward_coef:      0.5
+value_coef:       0.1
+consistency_coef: 2
+
+# Schedules
+std_schedule:     linear(0.5, ${min_std}, 10000)
+horizon_schedule: linear(1, ${horizon}, 10000)
+
+# ── Architecture ──────────────────────────────────────────────────────────────
+enc_dim:    256
+mlp_dim:    512
+latent_dim: 50
+
+# ── Decoder ───────────────────────────────────────────────────────────────────
+latent_action_dim: 128
+decoder_init:      true
+use_latent_state:  true
+saturation_coeff:  0.0         # set > 0 to enable tanh jacobian penalty
+use_is_weights:    false       # apply PER IS weights to decoder loss
+
+# ── Update counts ─────────────────────────────────────────────────────────────
+told_updates:    500
+decoder_updates: 50
+dcem_batch_size: 64
+dcem_sampling_n: ~             # null = full buffer; set to int for recency-biased sampling
+
+# ── Buffer ────────────────────────────────────────────────────────────────────
+max_buffer_size: 1000000
+per_alpha: 0.6
+per_beta:  0.4
+
+# ── Load pretrained ───────────────────────────────────────────────────────────
+load_model:  /gpu-data3/okonias/checkpoints/model.pth
+load_buffer: /gpu-data3/okonias/checkpoints/replay_buffer.pth
+
+# ── Evaluation & Saving ───────────────────────────────────────────────────────
+eval_freq:     20000
+eval_episodes: 0               # set > 0 to enable periodic eval
+save_model:    false

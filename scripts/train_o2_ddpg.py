@@ -69,6 +69,7 @@ O2_DEFAULTS = {
     # recent-buffer sampling for decoder updates (None = full buffer)
     'dcem_sampling_n':      None,   # None = full buffer; set to int for recency-biased sampling
     'saturation_coeff':     0.0,    # set > 0 to enable saturation penalty
+    'use_is_weights':       False,  # apply PER importance-sampling weights to decoder loss
 }
 
 
