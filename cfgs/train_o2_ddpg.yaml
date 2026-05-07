@@ -80,4 +80,4 @@ save_video:    false
 # ── Logging ───────────────────────────────────────────────────────────────────
 use_wandb:     true
 wandb_project: TDMPC_O2
-wandb_entity:  odysseaskon
+wandb_entity:  odysseaskon-national-technical-university-of-athens
