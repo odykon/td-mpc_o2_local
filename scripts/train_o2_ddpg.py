@@ -107,6 +107,8 @@ def train(cfg):
         agent.model.load_state_dict(state_dict, strict=False)
         if 'model_target' in d:
             agent.model_target.load_state_dict(d['model_target'], strict=False)
+        else:
+            agent.model_target.load_state_dict(agent.model.state_dict())
         print(f'Loaded model from {cfg.load_model}')
 
     if cfg.get('load_buffer', None):
