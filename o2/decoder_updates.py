@@ -77,7 +77,7 @@ def action_decoder_DDPG_update(self, obs, u_mean, horizon):
 # 1b. DDPG update v2 — with entropy regularization + saturation penalty
 # ---------------------------------------------------------------------------
 
-def action_decoder_DDPG_update_v2(self, obs, u_mean, u_std, horizon):
+def action_decoder_DDPG_update_v2(self, obs, u_mean, u_std, horizon, weights=None):
     """
     DDPG-style decoder update with entropy regularization and saturation penalty.
 
@@ -104,8 +104,12 @@ def action_decoder_DDPG_update_v2(self, obs, u_mean, u_std, horizon):
     saturation        = pretanh.abs().mean().item()
 
     # --- Option 1: inline jacobian penalty [B], subtracted per batch element ---
-    jacobian_penalty = -torch.log(1 - sequence.pow(2) + 1e-6).sum(-1).mean(0)  # [B]
-    cost = -(value - self.cfg.saturation_coeff * jacobian_penalty).mean()
+    jacobian_penalty  = -torch.log(1 - sequence.pow(2) + 1e-6).sum(-1).mean(0)  # [B]
+    per_sample_cost   = -(value - self.cfg.saturation_coeff * jacobian_penalty)
+    if weights is not None:
+        cost = (per_sample_cost * weights).mean()
+    else:
+        cost = per_sample_cost.mean()
 
     # --- Option 2: saturation_loss (sampled across distribution), scalar ---
     #saturation_coeff = getattr(self.cfg, 'saturation_coeff', 0.0)
