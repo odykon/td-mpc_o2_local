@@ -7,7 +7,7 @@ exp_name:   default
 # ── Training ──────────────────────────────────────────────────────────────────
 action_repeat:  1
 episode_length: 1000
-train_steps:    40000
+train_steps:    10000
 seed_steps:     0
 update_freq:    2
 
@@ -78,6 +78,6 @@ save_model:    false
 save_video:    false
 
 # ── Logging ───────────────────────────────────────────────────────────────────
-use_wandb:     false
-wandb_project: none
-wandb_entity:  none
+use_wandb:     true
+wandb_project: TDMPC_O2
+wandb_entity:  odysseaskon

@@ -94,8 +94,18 @@ def train(cfg):
     assert torch.cuda.is_available(), 'CUDA is required. Use a GPU runtime.'
     set_seed(cfg.seed)
 
-    work_dir = LOG_ROOT / cfg.task / cfg.modality / cfg.exp_name / str(cfg.seed)
+    work_dir = LOG_ROOT / cfg.task / cfg.exp_name / str(cfg.seed)
     logger = CSVLogger(work_dir, cfg)
+
+    use_wandb = cfg.get('use_wandb', False)
+    if use_wandb:
+        import wandb
+        wandb.init(
+            project=cfg.get('wandb_project', 'td-mpc-o2'),
+            entity=cfg.get('wandb_entity', None) or None,
+            name=f"{cfg.task}__{cfg.exp_name}__seed{cfg.seed}",
+            config=OmegaConf.to_container(cfg, resolve=True),
+        )
 
     env    = make_env(cfg)
     agent  = TDMPC_O2(cfg)
@@ -191,6 +201,13 @@ def train(cfg):
             **dec_metrics,
         })
 
+        if use_wandb:
+            wandb.log({'train/episode_reward': episode.cumulative_reward,
+                       'train/phase': 0 if phase == 'tdmpc' else 1,
+                       **{f'train/{k}': v for k, v in train_metrics.items()},
+                       **{f'decoder/{k}': v for k, v in dec_metrics.items() if k != 'grad_tracker'},
+                       }, step=env_step)
+
         # --- Periodic evaluation ---
         if env_step % cfg.eval_freq == 0 and cfg.eval_episodes > 0:
             eval_reward = evaluate(env, agent, cfg.eval_episodes, step)
@@ -200,6 +217,8 @@ def train(cfg):
                 'episode_reward': eval_reward,
                 'total_time':     time.time() - start_time,
             })
+            if use_wandb:
+                wandb.log({'eval/episode_reward': eval_reward}, step=env_step)
 
         # --- Save model checkpoint ---
         if cfg.get('save_model', False) and env_step % cfg.eval_freq == 0 and env_step > 0:
@@ -209,6 +228,8 @@ def train(cfg):
 
     agent.save(work_dir / 'final_model.pt')
     logger.close()
+    if use_wandb:
+        wandb.finish()
     print('\nTraining complete.')
 
 
