@@ -110,7 +110,7 @@ def DCEMethod(self, obs, update_mode=False, step=None, t0=True,
 
 
 def DCEMethod_v2(self, obs, step=None, t0=True,
-                 sample_final_action=False, lml_temperature=10):
+                 sample_final_action=False, lml_temperature=10, use_target=False):
     """
     DCEMethod with per-iteration gradient tracking via backward hooks.
 
@@ -148,7 +148,7 @@ def DCEMethod_v2(self, obs, step=None, t0=True,
             u_flat    = u_samples.view(B * self.cfg.latent_num_samples, self.cfg.latent_action_dim)
 
             sequence = self.model.decode_sequence(u_flat, z)
-            value    = self.estimate_value_with_grad(z, sequence, horizon).view(B, self.cfg.latent_num_samples)
+            value    = self.estimate_value_with_grad(z, sequence, horizon, target=use_target).view(B, self.cfg.latent_num_samples)
 
             scores        = LML(N=self.cfg.latent_num_elites, verbose=0, eps=1e-4)(value * lml_temperature)
             scores        = scores / scores.sum(dim=1, keepdim=True)
