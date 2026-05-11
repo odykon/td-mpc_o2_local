@@ -111,10 +111,14 @@ def action_decoder_DDPG_update_v2(self, obs, u_mean, u_std, horizon, weights=Non
     else:
         cost = per_sample_cost.mean()
 
-    # --- Option 2: saturation_loss (sampled across distribution), scalar ---
-    #saturation_coeff = getattr(self.cfg, 'saturation_coeff', 0.0)
-    #sat_loss = self.saturation_loss(u_mean, u_std, z) if saturation_coeff > 0 else 0.0
-    #cost = -(value - saturation_coeff * sat_loss).mean()
+    # --- Option 2: saturation_loss (sampled across distribution) [B] ---
+    #saturation_coeff  = getattr(self.cfg, 'saturation_coeff', 0.0)
+    #sat_loss          = self.saturation_loss(u_mean, u_std, z) if saturation_coeff > 0 else 0.0
+    #per_sample_cost   = -(value - saturation_coeff * sat_loss)
+    #if weights is not None:
+    #    cost = (per_sample_cost * weights).mean()
+    #else:
+    #    cost = per_sample_cost.mean()
 
     cost.backward()
     grad_norm = torch.sqrt(sum(
@@ -387,15 +391,18 @@ def saturation_loss(self, u_mean, u_std, z_state, num_samples=20):
         num_samples (int):    Monte-Carlo samples per batch element
 
     Returns:
-        Tensor: scalar penalty
+        Tensor: [B] per-batch-element penalty
     """
     u_dist     = torch.distributions.Normal(u_mean, u_std)
     u_samples  = u_dist.rsample((num_samples,))                  # [S, B, latent_dim]
     u_flat     = u_samples.reshape(-1, u_samples.shape[-1])      # [S*B, latent_dim]
     z_repeated = z_state.repeat_interleave(num_samples, dim=0)   # [S*B, z_dim]
 
-    _, pretanh  = self.model.decode_sequence_pretanh(u_flat, z_repeated)  # [horizon, S*B, action_dim]
-    actions     = torch.tanh(pretanh)
-    log_jacobian = torch.log(1 - actions.pow(2) + 1e-6)          # [horizon, S*B, action_dim]
+    _, pretanh   = self.model.decode_sequence_pretanh(u_flat, z_repeated)  # [horizon, S*B, action_dim]
+    actions      = torch.tanh(pretanh)
+    log_jacobian = torch.log(1 - actions.pow(2) + 1e-6)                   # [horizon, S*B, action_dim]
 
-    return -log_jacobian.sum(-1).mean()
+    # sum over action_dim, reshape to [horizon, S, B], mean over horizon and samples → [B]
+    penalty = -log_jacobian.sum(-1)                                        # [horizon, S*B]
+    penalty = penalty.view(penalty.shape[0], num_samples, -1)              # [horizon, S, B]
+    return penalty.mean(dim=(0, 1))                                        # [B]
