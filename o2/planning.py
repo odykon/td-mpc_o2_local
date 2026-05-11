@@ -150,7 +150,8 @@ def DCEMethod_v2(self, obs, step=None, t0=True,
             sequence = self.model.decode_sequence(u_flat, z)
             value    = self.estimate_value_with_grad(z, sequence, horizon, target=use_target).view(B, self.cfg.latent_num_samples)
 
-            scores        = LML(N=self.cfg.latent_num_elites, verbose=0, eps=1e-4)(value * lml_temperature)
+            value_norm    = (value - value.mean(dim=1, keepdim=True)) / (value.std(dim=1, keepdim=True) + 1e-8)
+            scores        = LML(N=self.cfg.latent_num_elites, verbose=0, eps=1e-4)(value_norm * lml_temperature)
             scores        = scores / scores.sum(dim=1, keepdim=True)
             elite_weights = scores.unsqueeze(2)
 
