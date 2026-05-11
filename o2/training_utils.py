@@ -19,10 +19,7 @@ from o2.episode import PGEpisode
 
 def sample_recent_obs(buffer, n):
     """
-    Sample a batch of observations from the n most recent transitions in the buffer.
-
-    Uses PER weights computed over the recent window only (not the full buffer),
-    which avoids the weighting bug in the original sample_new implementation.
+    Uniformly sample a batch of observations from the n most recent transitions.
 
     Args:
         buffer: ReplayBuffer instance
@@ -36,21 +33,8 @@ def sample_recent_obs(buffer, n):
     end   = buffer.idx
     start = (end - n) % buffer.capacity
 
-    if start < end:
-        recent_priorities = buffer._priorities[start:end]
-        offset = start
-    else:
-        recent_priorities = torch.cat([buffer._priorities[start:], buffer._priorities[:end]])
-        offset = start
-
-    probs = recent_priorities ** buffer.cfg.per_alpha
-    probs = probs / probs.sum()
-
-    rel_idxs = torch.from_numpy(
-        np.random.choice(len(probs), buffer.cfg.batch_size, p=probs.cpu().numpy(), replace=False)
-    ).to(buffer.device)
-
-    idxs = (rel_idxs + offset) % buffer.capacity
+    rel_idxs = torch.randint(0, n, (buffer.cfg.batch_size,), device=buffer.device)
+    idxs = (rel_idxs + start) % buffer.capacity
     return buffer._get_obs(buffer._obs, idxs)
 
 
