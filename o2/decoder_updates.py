@@ -367,7 +367,7 @@ def action_entropy_loss(self, u_mean, u_std, z_state, num_samples=20, horizon=5)
     entropy_flat = mvn.entropy()
     entropy      = entropy_flat.view(B, T)
 
-    return entropy.mean(dim=1).mean()
+    return entropy.mean(dim=1)  # [B] — mean over horizon, keep batch
 
 
 # ---------------------------------------------------------------------------
