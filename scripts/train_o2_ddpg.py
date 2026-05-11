@@ -30,6 +30,7 @@ import os
 os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
 os.environ['MUJOCO_GL'] = 'egl'
 
+import re
 import sys
 from pathlib import Path
 
@@ -62,6 +63,7 @@ O2_DEFAULTS = {
     'decoder_updates':      50,
     'told_updates':         500,
     'decoder_start_steps':  5000,
+    'latent_start_steps':   None,   # when to switch to CEM_in_latent; defaults to decoder_start_steps
     'exp_name':             'o2_ddpg',
     # CEM hyperparams for O2 latent-space planning (independent of standard CEM)
     'latent_num_samples':   32,
@@ -71,6 +73,11 @@ O2_DEFAULTS = {
     'saturation_coeff':     0.0,    # set > 0 to enable saturation penalty
     'use_is_weights':       False,  # apply PER importance-sampling weights to decoder loss
     'dec_grad_clip_norm':   None,   # decoder grad clip threshold (None = no clipping)
+    # MuJoCo-step counts (raw env steps before action_repeat division).
+    # When set, these override the corresponding agent-step fields in load_cfg.
+    'mujoco_train_steps':         None,
+    'mujoco_decoder_start_steps': None,
+    'mujoco_latent_start_steps':  None,
 }
 
 
@@ -135,6 +142,7 @@ def train(cfg):
     print(f'Action dim:          {cfg.action_dim}')
     print(f'Latent action dim:   {cfg.latent_action_dim}')
     print(f'Decoder start steps: {cfg.decoder_start_steps * cfg.action_repeat:,}  (env steps)')
+    print(f'Latent start steps:  {cfg.latent_start_steps * cfg.action_repeat:,}  (env steps)')
     print(f'Seed:                {cfg.seed}')
     print(f'Log dir:             {work_dir}')
     print('=' * 60 + '\n')
@@ -143,7 +151,12 @@ def train(cfg):
     start_time  = time.time()
 
     for step in range(0, cfg.train_steps + cfg.episode_length, cfg.episode_length):
-        phase = 'o2' if step >= cfg.decoder_start_steps else 'tdmpc'
+        if step < cfg.decoder_start_steps:
+            phase = 'tdmpc'
+        elif step < cfg.latent_start_steps:
+            phase = 'warmup'
+        else:
+            phase = 'o2'
 
         # --- Collect one episode ---
         t_ep = time.time()
@@ -153,7 +166,7 @@ def train(cfg):
             if step < cfg.seed_steps:
                 action_np = env.action_space.sample()
                 action = torch.tensor(action_np, dtype=torch.float32, device=agent.device)
-            elif phase == 'tdmpc':
+            elif phase in ('tdmpc', 'warmup'):
                 action = agent.plan(obs, step=step, t0=episode.first)
             else:
                 action, *_ = agent.CEM_in_latent(
@@ -176,7 +189,7 @@ def train(cfg):
         # --- Update decoder (DDPG) ---
         dec_metrics = {}
         decoder_time = 0.0
-        if phase == 'o2':
+        if phase in ('warmup', 'o2'):
             t_dec = time.time()
             dec_metrics = update_decoder(agent, buffer, cfg, step)
             decoder_time = time.time() - t_dec
@@ -204,7 +217,7 @@ def train(cfg):
 
         if use_wandb:
             wandb.log({'train/episode_reward': episode.cumulative_reward,
-                       'train/phase': 0 if phase == 'tdmpc' else 1,
+                       'train/phase': {'tdmpc': 0, 'warmup': 1, 'o2': 2}[phase],
                        **{f'train/{k}': v for k, v in train_metrics.items()},
                        **{f'decoder/{k}': v for k, v in dec_metrics.items() if k != 'grad_tracker'},
                        }, step=env_step)
@@ -264,6 +277,12 @@ def load_cfg() -> OmegaConf:
       3. O2_DEFAULTS
       4. Custom YAML passed as cfg=<path>
       5. Remaining CLI args
+
+    Post-merge:
+      - Arithmetic strings (e.g. "500000/4" from OmegaConf interpolation) are evaluated.
+      - mujoco_decoder_start_steps and mujoco_latent_start_steps, if set, override
+        decoder_start_steps and latent_start_steps by dividing by action_repeat.
+      - latent_start_steps defaults to decoder_start_steps if not set.
     """
     cfg = parse_cfg(CFG_PATH)
     cfg = OmegaConf.merge(OmegaConf.create(O2_DEFAULTS), cfg)
@@ -273,7 +292,31 @@ def load_cfg() -> OmegaConf:
         cli = OmegaConf.from_cli()
         cli_overrides = OmegaConf.create({k: v for k, v in cli.items() if k != 'cfg'})
         cfg = OmegaConf.merge(cfg, custom, cli_overrides)
-        
+
+    # Evaluate arithmetic strings produced by OmegaConf interpolation (e.g. "500000/4")
+    for k, v in cfg.items():
+        if isinstance(v, str):
+            match = re.match(r'^(\d+)([+\-*/])(\d+)$', v)
+            if match:
+                result = eval(match.group(1) + match.group(2) + match.group(3))
+                cfg[k] = int(result) if isinstance(result, float) and result.is_integer() else result
+
+    # Derive agent-step counts from mujoco step counts (divided by action_repeat)
+    for mujoco_key, target_key in [
+        ('mujoco_train_steps',         'train_steps'),
+        ('mujoco_decoder_start_steps', 'decoder_start_steps'),
+        ('mujoco_latent_start_steps',  'latent_start_steps'),
+    ]:
+        val = cfg.get(mujoco_key, None)
+        if val is not None:
+            cfg[target_key] = int(val) // cfg.action_repeat
+
+    if cfg.get('latent_start_steps', None) is None:
+        cfg.latent_start_steps = cfg.decoder_start_steps
+
+    assert cfg.latent_start_steps >= cfg.decoder_start_steps, \
+        'latent_start_steps must be >= decoder_start_steps'
+
     return cfg
 
 
