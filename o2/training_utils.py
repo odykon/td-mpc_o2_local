@@ -146,7 +146,7 @@ def update_decoder(agent, buffer, cfg, step):
     horizon = int(linear_schedule(cfg.horizon_schedule, step))
 
     n = getattr(agent.cfg, 'dcem_sampling_n', None)
-    accum = {'decoder_loss': 0.0, 'decoder_grad_norm': 0.0, 'saturation': 0.0}
+    accum = {}
     last_grad_tracker = []
     use_is_weights = getattr(agent.cfg, 'use_is_weights', False)
     for _ in range(agent.cfg.decoder_updates):
@@ -157,8 +157,8 @@ def update_decoder(agent, buffer, cfg, step):
             weights = None
         _, u_mean, u_std, _, _, grad_tracker = agent.DCEMethod_v2(obs, step=step, t0=False)
         metrics = agent.action_decoder_DDPG_update_v2(obs, u_mean, u_std, horizon, weights)
-        for k in accum:
-            accum[k] += metrics[k]
+        for k, v in metrics.items():
+            accum[k] = accum.get(k, 0.0) + v
         last_grad_tracker = grad_tracker
 
     agent.model.track_TOLD_grad(True)
