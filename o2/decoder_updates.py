@@ -121,6 +121,9 @@ def action_decoder_DDPG_update_v2(self, obs, u_mean, u_std, horizon, weights=Non
         p.grad.norm() ** 2
         for p in self.model._action_decoder.parameters() if p.grad is not None
     ))
+    dec_grad_clip = getattr(self.cfg, 'dec_grad_clip_norm', None)
+    if dec_grad_clip:
+        utils.clip_grad_norm_(self.model._action_decoder.parameters(), max_norm=dec_grad_clip)
     self.action_dec_optim.step()
 
     return {'decoder_loss': cost.item(), 'decoder_grad_norm': grad_norm.item(), 'saturation': saturation}
