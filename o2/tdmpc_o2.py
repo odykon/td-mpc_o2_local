@@ -52,14 +52,15 @@ class TDMPC_O2(TDMPC):
             model.track_TOLD_grad          = types.MethodType(track_TOLD_grad, model)
             model.track_O2_grad            = types.MethodType(track_O2_grad, model)
 
-    def estimate_value_with_grad(self, z, actions, horizon):
+    def estimate_value_with_grad(self, z, actions, horizon, target=False):
         """estimate_value without @torch.no_grad() — needed for gradient flow in DCEMethod."""
+        m = self.model_target if target else self.model
         G, discount = 0, 1
         for t in range(horizon):
-            z, reward = self.model.next(z, actions[t])
+            z, reward = m.next(z, actions[t])
             G += discount * reward
             discount *= self.cfg.discount
-        G += discount * torch.min(*self.model.Q(z, self.model.pi(z, self.cfg.min_std)))
+        G += discount * torch.min(*m.Q(z, m.pi(z, self.cfg.min_std)))
         return G
 
     def DCEMethod(self, *args, **kwargs):
