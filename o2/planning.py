@@ -84,7 +84,8 @@ def DCEMethod(self, obs, update_mode=False, step=None, t0=True,
             value    = self.estimate_value_with_grad(z, sequence, horizon).view(B, self.cfg.latent_num_samples)
 
             # LML soft top-k elite selection
-            scores = LML(N=self.cfg.latent_num_elites, verbose=0, eps=1e-4)(value * lml_temperature)
+            value_centred = value - value.mean(dim=1, keepdim=True)
+            scores = LML(N=self.cfg.latent_num_elites, verbose=0, eps=1e-4)(value_centred * lml_temperature)
             scores = scores / scores.sum(dim=1, keepdim=True)              # [B, N]
 
             w   = scores.unsqueeze(2)                                      # [B, N, 1]
@@ -150,7 +151,8 @@ def DCEMethod_v2(self, obs, step=None, t0=True,
             sequence = self.model.decode_sequence(u_flat, z)
             value    = self.estimate_value_with_grad(z, sequence, horizon, target=use_target).view(B, self.cfg.latent_num_samples)
 
-            scores        = LML(N=self.cfg.latent_num_elites, verbose=0, eps=1e-4)(value * lml_temperature)
+            value_centred = value - value.mean(dim=1, keepdim=True)
+            scores        = LML(N=self.cfg.latent_num_elites, verbose=0, eps=1e-4)(value_centred * lml_temperature)
             scores        = scores / scores.sum(dim=1, keepdim=True)
             elite_weights = scores.unsqueeze(2)
 
