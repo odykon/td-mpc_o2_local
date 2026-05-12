@@ -1,17 +1,13 @@
-import pandas as pd
 import os
+import json
+import requests
+import time
 import torch
+import numpy as np
+import imageio
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from omegaconf import OmegaConf
-import json
-import requests
-
-import numpy as np
-import torch
-import imageio
-import os
-import time
 
 def make_save_dir_path(cfg, base_dir="results", timezone="Europe/Athens"):
     local_time = datetime.now(ZoneInfo(timezone))
@@ -135,6 +131,7 @@ def evaluate_agent(env, agent, cfg, step, cem=False, LML=False, n_episodes=5, sa
     return eval_metrics
 
 def save_results(cfg, episode_metrics, save_dir, evaluation_metrics=None, step=None):
+    import pandas as pd
     os.makedirs(save_dir, exist_ok=True)
 
     # Save config once
