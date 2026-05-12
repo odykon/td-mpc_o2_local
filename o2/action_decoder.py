@@ -175,9 +175,15 @@ def decode_sequence_pretanh(self, u, z):
     
 def track_TOLD_grad(self, enable=True):
     """Enables/disables gradient tracking of all TOLD components."""
-    for m in [self._Q1, self._Q2, self._reward, self._dynamics, self._encoder]:
+    for m in [self._Q1, self._Q2, self._reward, self._dynamics, self._encoder, self._pi]:
         h.set_requires_grad(m, enable)
 
 def track_O2_grad(self, enable=True):
     for m in [self._action_decoder, self._V]:
         h.set_requires_grad(m, enable)
+        if not enable:
+            # O2 params are not in self.optim, so optim.zero_grad() never clears them.
+            # Zeroing here prevents stale decoder/V gradients from inflating
+            # clip_grad_norm_ during TOLD updates and causing over-clipping.
+            for p in m.parameters():
+                p.grad = None

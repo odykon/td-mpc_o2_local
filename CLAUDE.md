@@ -7,11 +7,15 @@ The goal is to train agents on DMControl tasks using CEM planning in a learned l
 
 ```
 scripts/               # Runnable training entry points
-  train_tdmpc.py       # Standard TD-MPC training (base agent, CEM planning)
-  train_o2_ddpg.py     # O2 training: CEM in latent space + DDPG decoder update
+  train_tdmpc.py            # Standard TD-MPC training (base agent, CEM planning)
+  train_o2_ddpg.py          # O2 training: CEM in latent space + DDPG decoder update
+  train_o2_phased.py        # Phased O2 experiment: TOLD-only → decoder warm-up → latent CEM
+  train_tdmpc_resume.py     # TDMPC baseline: loads intermediate checkpoint, continues standard CEM
+  run_phased_experiments.sh # Batch runner: 5 envs × 3 seeds (O2 phased + TDMPC baseline)
 
 cfgs/                  # Custom YAML configs for training runs
   train_tdmpc.yaml     # Config for train_tdmpc.py — edit this to set hyperparams
+  exp_phased.yaml      # Config for train_o2_phased.py — phased experiment hyperparams
 
 notebooks/             # Debug/interactive training notebooks
   train_o2_ddpg_debug.ipynb  # Interactive O2 DDPG training loop
@@ -20,11 +24,12 @@ o2/                    # O2 extension — latent action space decoder
   tdmpc_o2.py          # TDMPC_O2 class: TDMPC subclass with decoder + value network
   action_decoder.py    # Decoder MLP architecture and initialisation
   planning.py          # DCEMethod (differentiable CEM), DCEMethod_v2 (with grad tracking), CEM_in_latent
+                       #   → value centering (subtract per-sample mean) applied before LML in both methods
   decoder_updates.py   # All decoder update strategies (DDPG, PG, PPO)
   training_utils.py    # Shared loop utilities: set_seed, update_tdmpc, update_decoder, update_decoder_pg
   logger.py            # CSVLogger — shared by all training scripts
   episode.py           # PGEpisode — extends Episode with on-policy fields
-  eval_utils.py        # Evaluation, metrics, video saving
+  eval_utils.py        # Evaluation, metrics, video saving (pandas import is lazy inside save_results)
 
 tdmpc/                 # Original TD-MPC implementation (Hansen et al., 2022) — do not modify
   src/                 # Core source: TDMPC agent, TOLD model, ReplayBuffer, env wrappers, cfg parsing
@@ -51,6 +56,31 @@ results/               # Evaluation outputs (gitignored)
   - Phase 2 (`step >= decoder_start_steps`): CEM in latent space, TOLD + decoder DDPG updates
 - Decoder maps latent actions `u` → action sequences, conditioned on latent state `z`
 - `DCEMethod` (differentiable CEM) is used for decoder training; `CEM_in_latent` (hard top-k) for rollouts
+
+**Phased O2 Training** (`scripts/train_o2_phased.py` + `cfgs/exp_phased.yaml`):
+- Single continuous loop, one buffer, three phases determined by MuJoCo step thresholds:
+  - `tdmpc`  (0 → `mujoco_decoder_start_steps`): standard CEM planning, TOLD updates only (500/ep)
+  - `warmup` (`mujoco_decoder_start_steps` → `mujoco_latent_start_steps`): standard CEM + TOLD (500/ep) + decoder (100/ep)
+  - `o2`     (`mujoco_latent_start_steps` → `mujoco_train_steps`): latent CEM + TOLD (500/ep) + decoder (100/ep)
+- Default thresholds: seed=4k, decoder warm-up=15k, latent CEM=20k, total=40k MuJoCo steps
+- All thresholds specified in **raw MuJoCo interactions** and divided by `action_repeat` in `load_cfg`
+- At the first step of the `o2` phase, saves both model and buffer as W&B artifacts (intermediate checkpoint)
+- Final evaluation with video at end; nothing is saved locally — everything goes to W&B
+- `PHASED_DEFAULTS` in the script holds all hyperparams; `exp_phased.yaml` mirrors them for override
+
+**TDMPC Baseline** (`scripts/train_tdmpc_resume.py`):
+- Downloads the intermediate model + buffer artifacts from W&B (saved by `train_o2_phased.py`)
+- Continues standard CEM training for `mujoco_resume_steps` (default 20k) more MuJoCo interactions
+- `step` starts from `step_offset` (= `mujoco_step_offset // action_repeat`) so W&B curves overlay directly with the O2 run
+- Uses plain `TDMPC` agent; loads checkpoint with `strict=False` (tolerates decoder keys in TDMPC_O2 checkpoint)
+- Artifact names: `intermediate_{task_safe}_seed{seed}:latest` and `intermediate_buffer_{task_safe}_seed{seed}:latest`
+
+**W&B Conventions**:
+- Project: `TDMPC_O2`, entity: `odysseaskon-national-technical-university-of-athens`
+- `group=cfg.task` — separates environments in the UI; seeds within a group can be averaged/compared
+- One W&B run per (task, seed); run name = `{exp_name}__seed{seed}`
+- Nothing is saved locally — all artifacts (models, buffers, videos) go via `tempfile` → W&B → `os.unlink`
+- Models logged as W&B Artifacts (type=`model`); buffers as type=`buffer`; video via `wandb.Video`
 
 **O2 Defaults** — each O2 script defines its own `O2_DEFAULTS` dict, merged into the config before CLI args:
 ```python
@@ -160,10 +190,18 @@ TMPDIR=/gpu-data3/okonias/tmp pip install mujoco dm-control gym --only-binary :a
 source /gpu-data3/okonias/miniconda3/bin/activate
 conda activate /gpu-data3/okonias/envs/tdmpc_o2
 cd ~/projects/td-mpc_o2
-python3 scripts/train_tdmpc.py cfg=cfgs/train_tdmpc.yaml
+# Force pull latest code from remote:
+git fetch origin && git reset --hard origin/main
+# Run experiments inside tmux so SSH disconnect doesn't kill training:
+tmux new -s train        # or: tmux attach -t train
+python3 scripts/train_o2_phased.py cfg=cfgs/exp_phased.yaml task=walker-walk seed=1
+# Detach from tmux: Ctrl-B D   |   Reattach: tmux attach -t train
 ```
 
 Note: `MUJOCO_GL=egl` is set automatically by the training scripts.
+
+**GPU utilisation**: Small model + small batch → ~20% GPU usage. To increase:
+- Set `batch_size: 2048` and `dcem_batch_size: 256` in the config (or via CLI) for higher throughput.
 
 ## Conventions
 
@@ -175,6 +213,23 @@ Note: `MUJOCO_GL=egl` is set automatically by the training scripts.
 - `tdmpc/` is upstream code — never modify it
 - `lml.py` is external (Amos et al.) — never modify it
 - `logs/` and `results/` are gitignored — never commit training outputs
+
+## Running the Phased Experiments
+
+Full experiment suite (5 envs × 3 seeds, O2 phased + TDMPC baseline):
+```bash
+bash scripts/run_phased_experiments.sh
+```
+
+Single run for testing:
+```bash
+python3 scripts/train_o2_phased.py cfg=cfgs/exp_phased.yaml task=walker-walk seed=1
+```
+
+TDMPC baseline for one run (requires intermediate artifacts already uploaded):
+```bash
+python3 scripts/train_tdmpc_resume.py task=walker-walk seed=1
+```
 
 ## Planned Scripts
 
