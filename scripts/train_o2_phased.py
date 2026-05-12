@@ -112,7 +112,8 @@ def train(cfg):
     wandb.init(
         project=cfg.wandb_project,
         entity=cfg.wandb_entity,
-        name=f"{cfg.task}__{cfg.exp_name}__seed{cfg.seed}",
+        group=cfg.task,
+        name=f"{cfg.exp_name}__seed{cfg.seed}",
         config=OmegaConf.to_container(cfg, resolve=True),
     )
 
@@ -145,16 +146,31 @@ def train(cfg):
         else:
             phase = 'o2'
 
-        # Upload intermediate model on first step of o2 phase
+        # Upload intermediate model + buffer on first step of o2 phase
         if phase == 'o2' and prev_phase != 'o2' and not saved_intermediate:
             _upload_model(agent,
                 label=f"intermediate_{cfg.task.replace('-', '_')}_seed{cfg.seed}",
                 metadata={'task': cfg.task, 'seed': cfg.seed,
                           'mujoco_step': cfg.mujoco_latent_start_steps})
+            with tempfile.NamedTemporaryFile(suffix='.pth', delete=False) as f:
+                buf_tmp = f.name
+            try:
+                torch.save(buffer.__dict__, buf_tmp)
+                art = wandb.Artifact(
+                    name=f"intermediate_buffer_{cfg.task.replace('-', '_')}_seed{cfg.seed}",
+                    type='buffer',
+                    metadata={'task': cfg.task, 'seed': cfg.seed,
+                              'mujoco_step': cfg.mujoco_latent_start_steps},
+                )
+                art.add_file(buf_tmp)
+                wandb.log_artifact(art)
+            finally:
+                os.unlink(buf_tmp)
             saved_intermediate = True
-            print(f'Intermediate model uploaded at MuJoCo step {cfg.mujoco_latent_start_steps:,}.')
+            print(f'Intermediate model + buffer uploaded at MuJoCo step {cfg.mujoco_latent_start_steps:,}.')
 
         # Collect episode
+        t_ep = time.time()
         obs = env.reset()
         episode = Episode(cfg, obs)
         while not episode.done:
@@ -171,23 +187,55 @@ def train(cfg):
             episode += (obs, action, reward, done)
         buffer += episode
         episode_idx += 1
+        ep_time = time.time() - t_ep
 
         # Updates (gated on seed_steps)
         train_metrics = {}
         dec_metrics   = {}
+        update_time   = 0.0
+        decoder_time  = 0.0
         if step >= cfg.seed_steps:
+            t_update = time.time()
             train_metrics = update_tdmpc(agent, buffer, step)
+            update_time = time.time() - t_update
             if phase in ('warmup', 'o2'):
+                t_dec = time.time()
                 dec_metrics = update_decoder(agent, buffer, cfg, step)
+                decoder_time = time.time() - t_dec
 
         env_step   = int(step * cfg.action_repeat)
         phase_code = {'tdmpc': 1, 'warmup': 2, 'o2': 3}[phase]
+        horizon    = int(linear_schedule(cfg.horizon_schedule, step))
+        std        = linear_schedule(cfg.std_schedule, step)
+        total_time = time.time() - start_time
+
+        SEP = '─' * 42
+        print(f'\n{SEP}')
+        print(f'  Episode {episode_idx}   step {env_step:,}   [{phase}]')
+        print(SEP)
+        def row(label, val):
+            print(f'  {label:<22}: {val}')
+        row('Reward',       f'{episode.cumulative_reward:>10.1f}')
+        row('Horizon',      f'{horizon:>10d}')
+        row('Std',          f'{std:>10.3f}')
+        row('Ep time',      f'{ep_time:>9.1f}s')
+        if update_time:
+            row('Update time',  f'{update_time:>9.1f}s')
+        if decoder_time:
+            row('Decoder time', f'{decoder_time:>9.1f}s')
+        for k, v in dec_metrics.items():
+            if k != 'grad_tracker':
+                row(k, f'{v:>10.4f}')
+        row('Total time',   f'{total_time:>9.0f}s')
+        for k, v in train_metrics.items():
+            row(k, f'{v:>10.4f}')
+
         wandb.log({
             'phase':                phase_code,
             'episode':              episode_idx,
             'train/episode_reward': episode.cumulative_reward,
-            'train/horizon':        int(linear_schedule(cfg.horizon_schedule, step)),
-            'train/std':            linear_schedule(cfg.std_schedule, step),
+            'train/horizon':        horizon,
+            'train/std':            std,
             **{f'train/{k}': v for k, v in train_metrics.items()},
             **{f'decoder/{k}': v for k, v in dec_metrics.items()
                if k != 'grad_tracker'},
@@ -202,7 +250,7 @@ def train(cfg):
     try:
         eval_metrics = evaluate_agent(
             env, agent, cfg,
-            step=total_step,
+            step=total_env_step,
             n_episodes=cfg.eval_episodes,
             save_dir=eval_tmp,
             video_mode='first',
