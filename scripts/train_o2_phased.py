@@ -14,9 +14,9 @@ One continuous training loop (one buffer) divided into three phases:
       Latent CEM planning, TOLD (500/ep) + decoder (100/ep).
 
 All step thresholds are in raw MuJoCo interactions and divided by
-action_repeat in load_cfg. One W&B run per (task, seed):
-  - Intermediate model uploaded at start of o2 phase.
-  - Final model + buffer + video uploaded at end.
+action_repeat in load_cfg. One W&B run per (task, seed). Nothing is
+persisted locally — all artifacts (models, buffer, video) are uploaded
+directly to W&B and temp files are deleted immediately after.
 
 Usage:
     python scripts/train_o2_phased.py cfg=cfgs/exp_phased.yaml task=walker-walk seed=1
@@ -31,6 +31,8 @@ os.environ['MUJOCO_GL'] = 'egl'
 import re
 import sys
 import glob
+import shutil
+import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
@@ -52,7 +54,6 @@ from o2.eval_utils import evaluate_agent
 torch.backends.cudnn.benchmark = True
 
 CFG_PATH = REPO_ROOT / 'tdmpc' / 'cfgs'
-LOG_ROOT  = REPO_ROOT / 'logs'
 
 PHASED_DEFAULTS = {
     # MuJoCo step thresholds (divided by action_repeat in load_cfg)
@@ -91,12 +92,22 @@ PHASED_DEFAULTS = {
 }
 
 
+def _upload_model(agent, label: str, metadata: dict) -> None:
+    """Save model to a temp file, upload to W&B artifact, delete temp file."""
+    with tempfile.NamedTemporaryFile(suffix='.pt', delete=False) as f:
+        tmp_path = f.name
+    try:
+        agent.save(tmp_path)
+        art = wandb.Artifact(name=label, type='model', metadata=metadata)
+        art.add_file(tmp_path)
+        wandb.log_artifact(art)
+    finally:
+        os.unlink(tmp_path)
+
+
 def train(cfg):
     assert torch.cuda.is_available(), 'CUDA is required.'
     set_seed(cfg.seed)
-
-    work_dir = LOG_ROOT / cfg.task / cfg.exp_name / str(cfg.seed)
-    work_dir.mkdir(parents=True, exist_ok=True)
 
     wandb.init(
         project=cfg.wandb_project,
@@ -118,13 +129,12 @@ def train(cfg):
     print(f'TOLD updates/ep:     {cfg.told_updates}')
     print(f'Decoder updates/ep:  {cfg.decoder_updates}')
     print(f'Seed:                {cfg.seed}')
-    print(f'Log dir:             {work_dir}')
     print('=' * 60 + '\n')
 
-    episode_idx       = 0
-    start_time        = time.time()
+    episode_idx        = 0
+    start_time         = time.time()
     saved_intermediate = False
-    prev_phase        = None
+    prev_phase         = None
 
     for step in range(0, cfg.train_steps + cfg.episode_length, cfg.episode_length):
         # Determine phase
@@ -135,20 +145,14 @@ def train(cfg):
         else:
             phase = 'o2'
 
-        # Save intermediate model on first step of o2 phase
+        # Upload intermediate model on first step of o2 phase
         if phase == 'o2' and prev_phase != 'o2' and not saved_intermediate:
-            ckpt_path = work_dir / 'intermediate_model.pt'
-            agent.save(ckpt_path)
-            art = wandb.Artifact(
-                name=f"intermediate_{cfg.task.replace('-', '_')}_seed{cfg.seed}",
-                type='model',
+            _upload_model(agent,
+                label=f"intermediate_{cfg.task.replace('-', '_')}_seed{cfg.seed}",
                 metadata={'task': cfg.task, 'seed': cfg.seed,
-                          'mujoco_step': cfg.mujoco_latent_start_steps},
-            )
-            art.add_file(str(ckpt_path))
-            wandb.log_artifact(art)
+                          'mujoco_step': cfg.mujoco_latent_start_steps})
             saved_intermediate = True
-            print(f'Intermediate model saved at MuJoCo step {cfg.mujoco_latent_start_steps:,}.')
+            print(f'Intermediate model uploaded at MuJoCo step {cfg.mujoco_latent_start_steps:,}.')
 
         # Collect episode
         obs = env.reset()
@@ -176,10 +180,9 @@ def train(cfg):
             if phase in ('warmup', 'o2'):
                 dec_metrics = update_decoder(agent, buffer, cfg, step)
 
-        # Log
         env_step   = int(step * cfg.action_repeat)
         phase_code = {'tdmpc': 1, 'warmup': 2, 'o2': 3}[phase]
-        log = {
+        wandb.log({
             'phase':                phase_code,
             'episode':              episode_idx,
             'train/episode_reward': episode.cumulative_reward,
@@ -188,47 +191,53 @@ def train(cfg):
             **{f'train/{k}': v for k, v in train_metrics.items()},
             **{f'decoder/{k}': v for k, v in dec_metrics.items()
                if k != 'grad_tracker'},
-        }
-        wandb.log(log, step=env_step)
+        }, step=env_step)
 
         prev_phase = phase
 
     # ── Final evaluation with video ──────────────────────────────────────────
-    eval_dir = work_dir / 'final_eval'
-    total_env_step = int(cfg.train_steps * cfg.action_repeat)
+    total_step     = cfg.train_steps
+    total_env_step = int(total_step * cfg.action_repeat)
+    eval_tmp       = tempfile.mkdtemp()
+    try:
+        eval_metrics = evaluate_agent(
+            env, agent, cfg,
+            step=total_step,
+            n_episodes=cfg.eval_episodes,
+            save_dir=eval_tmp,
+            video_mode='first',
+        )
+        eval_log = {
+            'eval/mean_reward': eval_metrics['mean_reward'],
+            'eval/std_reward':  eval_metrics['std_reward'],
+        }
+        videos = glob.glob(os.path.join(eval_tmp, 'videos', '*.mp4'))
+        if videos:
+            eval_log['eval/video'] = wandb.Video(videos[0], fps=30, format='mp4')
+        wandb.log(eval_log, step=total_env_step)
+    finally:
+        shutil.rmtree(eval_tmp, ignore_errors=True)
 
-    eval_metrics = evaluate_agent(
-        env, agent, cfg,
-        step=cfg.train_steps,
-        n_episodes=cfg.eval_episodes,
-        save_dir=str(eval_dir),
-        video_mode='first',
-    )
-
-    eval_log = {
-        'eval/mean_reward': eval_metrics['mean_reward'],
-        'eval/std_reward':  eval_metrics['std_reward'],
-    }
-    videos = glob.glob(str(eval_dir / 'videos' / '*.mp4'))
-    if videos:
-        eval_log['eval/video'] = wandb.Video(videos[0], fps=30, format='mp4')
-    wandb.log(eval_log, step=total_env_step)
-
-    # ── Save final model + buffer to W&B ─────────────────────────────────────
-    final_model_path  = work_dir / 'final_model.pt'
-    final_buffer_path = work_dir / 'final_buffer.pth'
-    agent.save(final_model_path)
-    torch.save(buffer.__dict__, final_buffer_path)
-
-    art = wandb.Artifact(
-        name=f"final_{cfg.task.replace('-', '_')}_seed{cfg.seed}",
-        type='model',
+    # ── Upload final model + buffer ───────────────────────────────────────────
+    _upload_model(agent,
+        label=f"final_{cfg.task.replace('-', '_')}_seed{cfg.seed}",
         metadata={'task': cfg.task, 'seed': cfg.seed,
-                  'total_time_s': int(time.time() - start_time)},
-    )
-    art.add_file(str(final_model_path))
-    art.add_file(str(final_buffer_path))
-    wandb.log_artifact(art)
+                  'total_time_s': int(time.time() - start_time)})
+
+    # Buffer: temp file, upload, delete
+    with tempfile.NamedTemporaryFile(suffix='.pth', delete=False) as f:
+        buf_tmp = f.name
+    try:
+        torch.save(buffer.__dict__, buf_tmp)
+        art = wandb.Artifact(
+            name=f"buffer_{cfg.task.replace('-', '_')}_seed{cfg.seed}",
+            type='buffer',
+            metadata={'task': cfg.task, 'seed': cfg.seed},
+        )
+        art.add_file(buf_tmp)
+        wandb.log_artifact(art)
+    finally:
+        os.unlink(buf_tmp)
 
     wandb.finish()
     print(f'\nDone. Total time: {(time.time() - start_time) / 60:.1f} min')
@@ -256,16 +265,16 @@ def load_cfg() -> OmegaConf:
     ar = cfg.action_repeat
 
     # Convert all MuJoCo step counts to agent steps
-    cfg.train_steps          = int(cfg.mujoco_train_steps)          // ar
-    cfg.seed_steps           = int(cfg.mujoco_seed_steps)           // ar
-    cfg.decoder_start_steps  = int(cfg.mujoco_decoder_start_steps)  // ar
-    cfg.latent_start_steps   = int(cfg.mujoco_latent_start_steps)   // ar
+    cfg.train_steps         = int(cfg.mujoco_train_steps)         // ar
+    cfg.seed_steps          = int(cfg.mujoco_seed_steps)          // ar
+    cfg.decoder_start_steps = int(cfg.mujoco_decoder_start_steps) // ar
+    cfg.latent_start_steps  = int(cfg.mujoco_latent_start_steps)  // ar
 
-    assert cfg.seed_steps           <  cfg.decoder_start_steps, \
+    assert cfg.seed_steps          < cfg.decoder_start_steps, \
         'mujoco_seed_steps must be < mujoco_decoder_start_steps'
-    assert cfg.decoder_start_steps  <  cfg.latent_start_steps,  \
+    assert cfg.decoder_start_steps < cfg.latent_start_steps,  \
         'mujoco_decoder_start_steps must be < mujoco_latent_start_steps'
-    assert cfg.latent_start_steps   <= cfg.train_steps,         \
+    assert cfg.latent_start_steps  <= cfg.train_steps,        \
         'mujoco_latent_start_steps must be <= mujoco_train_steps'
 
     return cfg
