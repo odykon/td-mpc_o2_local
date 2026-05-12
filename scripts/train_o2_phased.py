@@ -74,9 +74,9 @@ PHASED_DEFAULTS = {
     'latent_num_samples': 32,
     'latent_num_elites':  8,
     'dcem_sampling_n':    None,
-    'saturation_coeff':   0.0,
-    'use_is_weights':     False,
-    'dec_grad_clip_norm': None,
+    'saturation_coeff':   0.05,
+    'use_is_weights':     True,
+    'dec_grad_clip_norm': 20,
 
     # Eval (one at end with video)
     'eval_episodes': 5,
