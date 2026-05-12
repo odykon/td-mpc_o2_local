@@ -62,6 +62,11 @@ PHASED_DEFAULTS = {
     'mujoco_decoder_start_steps':  15000,  # decoder warm-up starts
     'mujoco_latent_start_steps':   20000,  # latent CEM starts
 
+    # Schedule endpoints in MuJoCo steps (divided by action_repeat in load_cfg)
+    # std decays from 0.5 → min_std; horizon grows from 1 → horizon
+    'mujoco_std_schedule_steps':     40000,
+    'mujoco_horizon_schedule_steps': 40000,
+
     # Update cadence
     'told_updates':     500,   # TOLD updates per episode (always, after seed)
     'decoder_updates':  100,   # decoder updates per episode (warmup + o2)
@@ -317,6 +322,12 @@ def load_cfg() -> OmegaConf:
     cfg.seed_steps          = int(cfg.mujoco_seed_steps)          // ar
     cfg.decoder_start_steps = int(cfg.mujoco_decoder_start_steps) // ar
     cfg.latent_start_steps  = int(cfg.mujoco_latent_start_steps)  // ar
+
+    # Rebuild schedule strings from MuJoCo step counts
+    std_steps     = int(cfg.mujoco_std_schedule_steps)     // ar
+    horizon_steps = int(cfg.mujoco_horizon_schedule_steps) // ar
+    cfg.std_schedule     = f"linear(0.5, {cfg.min_std}, {std_steps})"
+    cfg.horizon_schedule = f"linear(1, {cfg.horizon}, {horizon_steps})"
 
     assert cfg.seed_steps          < cfg.decoder_start_steps, \
         'mujoco_seed_steps must be < mujoco_decoder_start_steps'
