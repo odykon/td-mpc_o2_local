@@ -26,4 +26,22 @@ for TASK in "${ENVS[@]}"; do
 done
 
 echo ""
-echo "All $TOTAL experiments complete."
+echo "All $TOTAL O2 experiments complete."
+echo ""
+echo "Running TDMPC baseline..."
+COUNT=0
+for TASK in "${ENVS[@]}"; do
+    for SEED in "${SEEDS[@]}"; do
+        COUNT=$(( COUNT + 1 ))
+        echo ""
+        echo "=========================================="
+        echo "Baseline $COUNT / $TOTAL  |  task=$TASK  seed=$SEED"
+        echo "=========================================="
+        python3 scripts/train_tdmpc_resume.py \
+            task="$TASK" \
+            seed="$SEED"
+    done
+done
+
+echo ""
+echo "All experiments complete."
