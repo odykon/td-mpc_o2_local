@@ -11,8 +11,8 @@ mujoco_latent_start_steps:   20000   # latent CEM starts (Phase 2 begins)
 # ── Schedule endpoints (MuJoCo steps) ─────────────────────────────────────────
 # std decays  0.5 → min_std  over this many MuJoCo interactions
 # horizon grows 1 → horizon  over this many MuJoCo interactions
-mujoco_std_schedule_steps:     40000
-mujoco_horizon_schedule_steps: 40000
+mujoco_std_schedule_steps:     10000
+mujoco_horizon_schedule_steps: 10000
 
 # ── Update cadence ────────────────────────────────────────────────────────────
 told_updates:    500   # TOLD gradient updates per episode (all phases, after seed)
@@ -20,7 +20,7 @@ decoder_updates: 100   # decoder gradient updates per episode (warmup + o2 only)
 
 # ── O2 architecture ───────────────────────────────────────────────────────────
 latent_action_dim:   128
-decoder_init:        true
+decoder_init:        false
 use_latent_state:    true
 dcem_batch_size:     64
 latent_num_samples:  32
@@ -28,7 +28,7 @@ latent_num_elites:   8
 lml_temperature:     1
 
 # ── Evaluation ────────────────────────────────────────────────────────────────
-eval_episodes: 5   # single final evaluation with video; no mid-training evals
+eval_episodes: 3   # single final evaluation with video; no mid-training evals
 
 # ── W&B ───────────────────────────────────────────────────────────────────────
 wandb_project: TDMPC_O2
