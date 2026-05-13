@@ -17,6 +17,26 @@ from algorithm.helper import Episode, linear_schedule
 from o2.episode import PGEpisode
 
 
+def sample_decoder_batch(buffer, batch_size, n=None, use_is_weights=False):
+    """
+    Sample one decoder-update batch at a specific batch size without permanently
+    mutating the shared cfg (buffer.cfg IS agent.cfg — same object).
+
+    Returns:
+        obs:     [batch_size, obs_dim]
+        weights: [batch_size] IS weights, or None if use_is_weights=False
+    """
+    old = buffer.cfg.batch_size
+    buffer.cfg.batch_size = batch_size
+    if use_is_weights:
+        obs, _, _, _, _, weights = buffer.sample()
+    else:
+        obs     = sample_recent_obs(buffer, n) if n else buffer.sample()[0]
+        weights = None
+    buffer.cfg.batch_size = old
+    return obs, weights
+
+
 def sample_recent_obs(buffer, n):
     """
     Uniformly sample a batch of observations from the n most recent transitions.
@@ -142,19 +162,15 @@ def update_decoder(agent, buffer, cfg, step):
         dict with keys: decoder_loss, decoder_grad_norm, saturation, grad_tracker
     """
     agent.model.track_TOLD_grad(False)
-    buffer.cfg.batch_size = agent.cfg.dcem_batch_size
     horizon = int(linear_schedule(cfg.horizon_schedule, step))
 
-    n = getattr(agent.cfg, 'dcem_sampling_n', None)
-    accum = {}
-    last_grad_tracker = []
+    n              = getattr(agent.cfg, 'dcem_sampling_n', None)
     use_is_weights = getattr(agent.cfg, 'use_is_weights', False)
+    accum          = {}
+    last_grad_tracker = []
     for _ in range(agent.cfg.decoder_updates):
-        if use_is_weights:
-            obs, _, _, _, _, weights = buffer.sample()
-        else:
-            obs = sample_recent_obs(buffer, n) if n else buffer.sample()[0]
-            weights = None
+        obs, weights = sample_decoder_batch(buffer, agent.cfg.dcem_batch_size,
+                                            n=n, use_is_weights=use_is_weights)
         _, u_mean, u_std, _, _, grad_tracker = agent.DCEMethod_v2(obs, step=step, t0=False)
         metrics = agent.action_decoder_DDPG_update_v2(obs, u_mean, u_std, horizon, weights)
         for k, v in metrics.items():
