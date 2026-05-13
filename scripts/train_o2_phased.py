@@ -78,6 +78,7 @@ PHASED_DEFAULTS = {
     'dcem_batch_size':    64,
     'latent_num_samples': 32,
     'latent_num_elites':  8,
+    'lml_temperature':    1,
     'dcem_sampling_n':    None,
     'saturation_coeff':   0.05,
     'use_is_weights':     True,

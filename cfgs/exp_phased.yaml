@@ -25,6 +25,7 @@ use_latent_state:    true
 dcem_batch_size:     64
 latent_num_samples:  32
 latent_num_elites:   8
+lml_temperature:     1
 
 # ── Evaluation ────────────────────────────────────────────────────────────────
 eval_episodes: 5   # single final evaluation with video; no mid-training evals

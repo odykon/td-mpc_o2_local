@@ -29,7 +29,7 @@ import algorithm.helper as h
 from lml import LML
 
 def DCEMethod(self, obs, update_mode=False, step=None, t0=True,
-              sample_final_action=False, lml_temperature=10):
+              sample_final_action=False):
     """
     Plan using the Differentiable Cross-Entropy Method in latent action space.
 
@@ -85,7 +85,7 @@ def DCEMethod(self, obs, update_mode=False, step=None, t0=True,
 
             # LML soft top-k elite selection
             value_centred = value - value.mean(dim=1, keepdim=True)
-            scores = LML(N=self.cfg.latent_num_elites, verbose=0, eps=1e-4)(value_centred * lml_temperature)
+            scores = LML(N=self.cfg.latent_num_elites, verbose=0, eps=1e-4)(value_centred * self.cfg.lml_temperature)
             scores = scores / scores.sum(dim=1, keepdim=True)              # [B, N]
 
             w   = scores.unsqueeze(2)                                      # [B, N, 1]
@@ -111,7 +111,7 @@ def DCEMethod(self, obs, update_mode=False, step=None, t0=True,
 
 
 def DCEMethod_v2(self, obs, step=None, t0=True,
-                 sample_final_action=False, lml_temperature=10, use_target=False):
+                 sample_final_action=False, use_target=False):
     """
     DCEMethod with per-iteration gradient tracking via backward hooks.
 
@@ -152,7 +152,7 @@ def DCEMethod_v2(self, obs, step=None, t0=True,
             value    = self.estimate_value_with_grad(z, sequence, horizon, target=use_target).view(B, self.cfg.latent_num_samples)
 
             value_centred = value - value.mean(dim=1, keepdim=True)
-            scores        = LML(N=self.cfg.latent_num_elites, verbose=0, eps=1e-4)(value_centred * lml_temperature)
+            scores        = LML(N=self.cfg.latent_num_elites, verbose=0, eps=1e-4)(value_centred * self.cfg.lml_temperature)
             scores        = scores / scores.sum(dim=1, keepdim=True)
             elite_weights = scores.unsqueeze(2)
 
