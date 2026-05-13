@@ -111,6 +111,19 @@ def _upload_model(agent, label: str, metadata: dict) -> None:
         os.unlink(tmp_path)
 
 
+def _upload_buffer(buffer, label: str, metadata: dict) -> None:
+    """Save replay buffer to a temp file, upload to W&B artifact, delete temp file."""
+    with tempfile.NamedTemporaryFile(suffix='.pth', delete=False) as f:
+        tmp_path = f.name
+    try:
+        torch.save(buffer.__dict__, tmp_path)
+        art = wandb.Artifact(name=label, type='buffer', metadata=metadata)
+        art.add_file(tmp_path)
+        wandb.log_artifact(art)
+    finally:
+        os.unlink(tmp_path)
+
+
 def train(cfg):
     assert torch.cuda.is_available(), 'CUDA is required.'
     set_seed(cfg.seed)
@@ -158,20 +171,10 @@ def train(cfg):
                 label=f"intermediate_{cfg.task.replace('-', '_')}_seed{cfg.seed}",
                 metadata={'task': cfg.task, 'seed': cfg.seed,
                           'mujoco_step': cfg.mujoco_latent_start_steps})
-            with tempfile.NamedTemporaryFile(suffix='.pth', delete=False) as f:
-                buf_tmp = f.name
-            try:
-                torch.save(buffer.__dict__, buf_tmp)
-                art = wandb.Artifact(
-                    name=f"intermediate_buffer_{cfg.task.replace('-', '_')}_seed{cfg.seed}",
-                    type='buffer',
-                    metadata={'task': cfg.task, 'seed': cfg.seed,
-                              'mujoco_step': cfg.mujoco_latent_start_steps},
-                )
-                art.add_file(buf_tmp)
-                wandb.log_artifact(art)
-            finally:
-                os.unlink(buf_tmp)
+            _upload_buffer(buffer,
+                label=f"intermediate_buffer_{cfg.task.replace('-', '_')}_seed{cfg.seed}",
+                metadata={'task': cfg.task, 'seed': cfg.seed,
+                          'mujoco_step': cfg.mujoco_latent_start_steps})
             saved_intermediate = True
             print(f'Intermediate model + buffer uploaded at MuJoCo step {cfg.mujoco_latent_start_steps:,}.')
 
@@ -229,9 +232,9 @@ def train(cfg):
             row('Update time',  f'{update_time:>9.1f}s')
         if decoder_time:
             row('Decoder time', f'{decoder_time:>9.1f}s')
+        grad_tracker = dec_metrics.pop('grad_tracker', [])
         for k, v in dec_metrics.items():
-            if k != 'grad_tracker':
-                row(k, f'{v:>10.4f}')
+            row(k, f'{v:>10.4f}')
         row('Total time',   f'{total_time:>9.0f}s')
         for k, v in train_metrics.items():
             row(k, f'{v:>10.4f}')
@@ -243,8 +246,8 @@ def train(cfg):
             'train/horizon':        horizon,
             'train/std':            std,
             **{f'train/{k}': v for k, v in train_metrics.items()},
-            **{f'decoder/{k}': v for k, v in dec_metrics.items()
-               if k != 'grad_tracker'},
+            **{f'decoder/{k}': v for k, v in dec_metrics.items()},
+            **{f'decoder/dcem_iter_{i}_grad': g for i, g in grad_tracker},
         }, step=env_step)
 
         prev_phase = phase
@@ -278,20 +281,9 @@ def train(cfg):
         metadata={'task': cfg.task, 'seed': cfg.seed,
                   'total_time_s': int(time.time() - start_time)})
 
-    # Buffer: temp file, upload, delete
-    with tempfile.NamedTemporaryFile(suffix='.pth', delete=False) as f:
-        buf_tmp = f.name
-    try:
-        torch.save(buffer.__dict__, buf_tmp)
-        art = wandb.Artifact(
-            name=f"buffer_{cfg.task.replace('-', '_')}_seed{cfg.seed}",
-            type='buffer',
-            metadata={'task': cfg.task, 'seed': cfg.seed},
-        )
-        art.add_file(buf_tmp)
-        wandb.log_artifact(art)
-    finally:
-        os.unlink(buf_tmp)
+    _upload_buffer(buffer,
+        label=f"buffer_{cfg.task.replace('-', '_')}_seed{cfg.seed}",
+        metadata={'task': cfg.task, 'seed': cfg.seed})
 
     wandb.finish()
     print(f'\nDone. Total time: {(time.time() - start_time) / 60:.1f} min')
