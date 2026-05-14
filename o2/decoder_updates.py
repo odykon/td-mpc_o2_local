@@ -99,6 +99,8 @@ def action_decoder_DDPG_update_v2(self, obs, u_mean, u_std, horizon, weights=Non
     self.action_dec_optim.zero_grad()
 
     z                 = self.model.h(obs).detach()
+    z_norm            = z.norm(dim=-1).mean().item()
+    u_norm            = u_mean.norm(dim=-1).mean().item()
     sequence, pretanh = self.model.decode_sequence_pretanh(u_mean, z)
     value             = self.estimate_value_with_grad(z, sequence, horizon).nan_to_num(0).squeeze(-1)
     saturation        = pretanh.abs().mean().item()
@@ -130,7 +132,15 @@ def action_decoder_DDPG_update_v2(self, obs, u_mean, u_std, horizon, weights=Non
         utils.clip_grad_norm_(self.model._action_decoder.parameters(), max_norm=dec_grad_clip)
     self.action_dec_optim.step()
 
-    return {'decoder_loss': cost.item(), 'decoder_grad_norm': grad_norm.item(), 'saturation': saturation}
+    return {
+        'decoder_loss':      cost.item(),
+        'decoder_grad_norm': grad_norm.item(),
+        'value_mean':        value.mean().item(),
+        'jacobian_penalty':  jacobian_penalty.mean().item(),
+        'saturation':        saturation,
+        'z_norm':            z_norm,
+        'u_norm':            u_norm,
+    }
 
 
 # ---------------------------------------------------------------------------
