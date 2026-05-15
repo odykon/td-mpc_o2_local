@@ -19,7 +19,7 @@ from algorithm.tdmpc import TDMPC
 from o2.action_decoder import (build_action_decoder, decode_sequence,
                                 decode_sequence_pretanh, track_TOLD_grad,
                                 track_O2_grad, build_value_network)
-from o2.planning import DCEMethod, DCEMethod_v2, CEM_in_latent
+from o2.planning import DCEMethod, DCEMethod_v2, DCEMethod_planning, CEM_in_latent
 from o2.decoder_updates import (action_decoder_DDPG_update,
                                  action_decoder_DDPG_update_v2,
                                  PG_withV, action_entropy_loss,
@@ -68,6 +68,9 @@ class TDMPC_O2(TDMPC):
 
     def DCEMethod_v2(self, *args, **kwargs):
         return DCEMethod_v2(self, *args, **kwargs)
+
+    def DCEMethod_planning(self, *args, **kwargs):
+        return DCEMethod_planning(self, *args, **kwargs)
 
     def CEM_in_latent(self, *args, **kwargs):
         return CEM_in_latent(self, *args, **kwargs)

@@ -189,7 +189,7 @@ def train(cfg):
             elif phase in ('tdmpc', 'warmup'):
                 action = agent.plan(obs, step=step, t0=episode.first)
             else:
-                action, *_ = agent.CEM_in_latent(
+                action, *_ = agent.DCEMethod_planning(
                     obs, step=step, t0=episode.first, sample_final_action=True
                 )
             obs, reward, done, _ = env.step(action.cpu().numpy())

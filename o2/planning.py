@@ -202,6 +202,64 @@ def DCEMethod_v2(self, obs, step=None, t0=True,
     return action, u_mean, u_std, latent_action, log_probs, grad_tracker, diversity, log_det_loss
 
 
+def DCEMethod_planning(self, obs, step=None, t0=True, sample_final_action=False):
+    """
+    Soft-top-k CEM in latent space for environment interaction.
+
+    Same as DCEMethod_v2 but runs under torch.no_grad(), has no gradient hooks,
+    and skips diversity computation. Returns the same first five elements as
+    DCEMethod_v2 for drop-in use during rollouts.
+    """
+    obs = obs if isinstance(obs, torch.Tensor) else \
+          torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
+    B = obs.shape[0]
+    horizon = int(min(self.cfg.horizon, h.linear_schedule(self.cfg.horizon_schedule, step)))
+
+    with torch.no_grad():
+        z_enc = self.model.h(obs)
+        z     = z_enc.unsqueeze(1).repeat(1, self.cfg.latent_num_samples, 1)
+        z     = z.view(B * self.cfg.latent_num_samples, -1)
+
+        u_mean = torch.zeros(B, self.cfg.latent_action_dim, device=self.cfg.device)
+        u_std  = 2 * torch.ones(B, self.cfg.latent_action_dim, device=self.cfg.device)
+
+        for _ in range(self.cfg.iterations):
+            u_noise   = torch.randn(B, self.cfg.latent_num_samples,
+                                    self.cfg.latent_action_dim, device=self.cfg.device)
+            u_samples = u_mean.unsqueeze(1) + u_std.unsqueeze(1) * u_noise
+            u_flat    = u_samples.view(B * self.cfg.latent_num_samples, self.cfg.latent_action_dim)
+
+            sequence = self.model.decode_sequence(u_flat, z)
+            value    = self.estimate_value(z, sequence, horizon).view(B, self.cfg.latent_num_samples)
+
+            mu     = value.mean(dim=1, keepdim=True)
+            sigma  = value.std(dim=1, keepdim=True)
+            scores = LML(N=self.cfg.latent_num_elites, verbose=0, eps=1e-4)(
+                (value - mu) / (sigma + 1e-5) * self.cfg.lml_temperature
+            )
+            scores = scores / scores.sum(dim=1, keepdim=True)
+            w      = scores.unsqueeze(2)
+
+            u_m = (w * u_samples).sum(dim=1)
+            u_s = torch.sqrt(
+                (w * (u_samples - u_m.unsqueeze(1)) ** 2).sum(dim=1)
+                / (scores.sum(dim=1, keepdim=True) + 1e-9)
+            ).clamp(self.std, 2)
+
+            u_mean = self.cfg.momentum * u_mean + (1 - self.cfg.momentum) * u_m
+            u_std  = u_s
+
+        dist          = torch.distributions.Normal(loc=u_mean, scale=u_std)
+        latent_action = dist.rsample() if sample_final_action else u_mean
+        latent_action = latent_action if latent_action.dim() == 2 else latent_action.unsqueeze(0)
+        log_probs     = dist.log_prob(latent_action).squeeze_(0).mean(dim=0)
+
+        sequence = self.model.decode_sequence(latent_action, z_enc)
+        action   = sequence[0, :].squeeze_(0)
+
+    return action, u_mean, u_std, latent_action, log_probs
+
+
 def CEM_in_latent(self, obs, update_mode=False, step=None, t0=True,
                   seed=None, sample_final_action=False, lml_temperature=10):
     """
