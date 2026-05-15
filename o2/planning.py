@@ -173,20 +173,20 @@ def DCEMethod_v2(self, obs, step=None, t0=True,
             u_mean = u_m
             u_std  = u_s
 
-        # Action diversity from last CEM iteration (no extra forward pass needed)
-        with torch.no_grad():
-            N, H, A = self.cfg.latent_num_samples, sequence.shape[0], sequence.shape[-1]
-            seq   = sequence.view(H, B, N, A)                                     # [H, B, N, A]
-            seq_c = seq - seq.mean(dim=2, keepdim=True)                            # centre across samples
-            cov   = (seq_c.transpose(-1, -2) @ seq_c) / (N - 1)                   # [H, B, A, A]
-            cov   = cov + 1e-6 * torch.eye(A, device=seq.device)                  # numerical stability
+        # Action diversity from last CEM iteration — differentiable log_det for loss
+        N, H, A  = self.cfg.latent_num_samples, sequence.shape[0], sequence.shape[-1]
+        seq      = sequence.view(H, B, N, A)
+        seq_c    = seq - seq.mean(dim=2, keepdim=True)
+        cov      = (seq_c.transpose(-1, -2) @ seq_c) / (N - 1)
+        cov      = cov + 1e-6 * torch.eye(A, device=seq.device)
+        log_det_loss = -torch.linalg.slogdet(cov)[1].mean()                       # minimise to maximise log-det
 
+        with torch.no_grad():
             action_var     = seq.var(dim=2).mean().item()
-            log_det        = torch.linalg.slogdet(cov)[1].mean().item()
-            eigvals        = torch.linalg.eigvalsh(cov).clamp(min=0)              # [H, B, A]
+            eigvals        = torch.linalg.eigvalsh(cov).clamp(min=0)
             p              = eigvals / (eigvals.sum(dim=-1, keepdim=True) + 1e-8)
             effective_rank = p.mul(-1).mul(torch.log(p + 1e-8)).sum(dim=-1).exp().mean().item()
-            diversity      = {'action_var': action_var, 'log_det': log_det, 'effective_rank': effective_rank}
+            diversity      = {'action_var': action_var, 'log_det': -log_det_loss.item(), 'effective_rank': effective_rank}
 
         dist  = torch.distributions.Normal(loc=u_mean, scale=u_std)
         latent_action = dist.rsample() if sample_final_action else u_mean
@@ -195,7 +195,7 @@ def DCEMethod_v2(self, obs, step=None, t0=True,
         sequence = self.model.decode_sequence(latent_action, z_enc)
         action   = sequence[0, :].squeeze_(0)
 
-    return action, u_mean, u_std, latent_action, log_probs, grad_tracker, diversity
+    return action, u_mean, u_std, latent_action, log_probs, grad_tracker, diversity, log_det_loss
 
 
 def CEM_in_latent(self, obs, update_mode=False, step=None, t0=True,

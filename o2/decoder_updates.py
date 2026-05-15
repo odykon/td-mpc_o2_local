@@ -77,7 +77,7 @@ def action_decoder_DDPG_update(self, obs, u_mean, horizon):
 # 1b. DDPG update v2 — with entropy regularization + saturation penalty
 # ---------------------------------------------------------------------------
 
-def action_decoder_DDPG_update_v2(self, obs, u_mean, u_std, horizon, weights=None):
+def action_decoder_DDPG_update_v2(self, obs, u_mean, u_std, horizon, weights=None, log_det_loss=None):
     """
     DDPG-style decoder update with entropy regularization and saturation penalty.
 
@@ -112,6 +112,10 @@ def action_decoder_DDPG_update_v2(self, obs, u_mean, u_std, horizon, weights=Non
         cost = (per_sample_cost * weights).mean()
     else:
         cost = per_sample_cost.mean()
+
+    diversity_coeff = getattr(self.cfg, 'diversity_coeff', 0.0)
+    if log_det_loss is not None and diversity_coeff > 0:
+        cost = cost + diversity_coeff * log_det_loss
 
     # --- Option 2: saturation_loss (sampled across distribution) [B] ---
     #saturation_coeff  = getattr(self.cfg, 'saturation_coeff', 0.0)
