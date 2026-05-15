@@ -173,6 +173,11 @@ def DCEMethod_v2(self, obs, step=None, t0=True,
             u_mean = u_m
             u_std  = u_s
 
+        # Action diversity from last CEM iteration (no extra forward pass needed)
+        with torch.no_grad():
+            N, H, A = self.cfg.latent_num_samples, sequence.shape[0], sequence.shape[-1]
+            action_var = sequence.view(H, B, N, A).var(dim=2).mean().item()
+
         dist  = torch.distributions.Normal(loc=u_mean, scale=u_std)
         latent_action = dist.rsample() if sample_final_action else u_mean
         log_probs     = dist.log_prob(latent_action).squeeze_(0).sum(dim=0)
@@ -180,7 +185,7 @@ def DCEMethod_v2(self, obs, step=None, t0=True,
         sequence = self.model.decode_sequence(latent_action, z_enc)
         action   = sequence[0, :].squeeze_(0)
 
-    return action, u_mean, u_std, latent_action, log_probs, grad_tracker
+    return action, u_mean, u_std, latent_action, log_probs, grad_tracker, action_var
 
 
 def CEM_in_latent(self, obs, update_mode=False, step=None, t0=True,

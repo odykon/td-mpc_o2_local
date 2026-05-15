@@ -24,8 +24,11 @@ o2/                    # O2 extension — latent action space decoder
   tdmpc_o2.py          # TDMPC_O2 class: TDMPC subclass with decoder + value network
   action_decoder.py    # Decoder MLP architecture and initialisation
   planning.py          # DCEMethod (differentiable CEM), DCEMethod_v2 (with grad tracking), CEM_in_latent
-                       #   → value centering (subtract per-sample mean) applied before LML in both methods
+                       #   → DCEMethod: raw value passed to LML (no normalisation)
+                       #   → DCEMethod_v2: value standardised with detached mean+std before LML
   decoder_updates.py   # All decoder update strategies (DDPG, PG, PPO)
+                       #   → action_decoder_DDPG_update_v2 returns: decoder_loss, decoder_grad_norm,
+                       #     value_mean, jacobian_penalty, saturation, z_norm, u_norm
   training_utils.py    # Shared loop utilities: set_seed, update_tdmpc, update_decoder, update_decoder_pg
   logger.py            # CSVLogger — shared by all training scripts
   episode.py           # PGEpisode — extends Episode with on-policy fields
